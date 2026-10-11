@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#58CC02"/>
+      <stop offset="100%" stop-color="#46A302"/>
+    </linearGradient>
+    <linearGradient id="bellyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#F1F5F9"/>
+    </linearGradient>
+    <linearGradient id="beakGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFC800"/>
+      <stop offset="100%" stop-color="#FF9600"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#14532D" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+
+  <!-- Background rounded squircle with safe padding -->
+  <rect width="512" height="512" rx="128" fill="url(#bgGrad)"/>
+  
+  <!-- Outer glowing ring -->
+  <circle cx="256" cy="256" r="236" fill="none" stroke="#FFFFFF" stroke-width="8" stroke-opacity="0.15"/>
+
+  <!-- Duo Psychology Mascot Body -->
+  <g filter="url(#shadow)">
+    <!-- Main Body Shape -->
+    <path d="M 120 280 C 120 160, 200 110, 256 110 C 312 110, 392 160, 392 280 C 392 375, 332 410, 256 410 C 180 410, 120 375, 120 280 Z" fill="#61E002"/>
+    <path d="M 120 280 C 120 375, 180 410, 256 410 C 332 410, 392 375, 392 280 C 392 310, 332 390, 256 390 C 180 390, 120 310, 120 280 Z" fill="#46A302"/>
+
+    <!-- Mascot Belly -->
+    <ellipse cx="256" cy="310" rx="95" ry="85" fill="url(#bellyGrad)"/>
+    
+    <!-- Feather patterns on chest -->
+    <path d="M 230 290 Q 256 310 282 290" fill="none" stroke="#CBD5E1" stroke-width="4" stroke-linecap="round"/>
+    <path d="M 220 320 Q 256 345 292 320" fill="none" stroke="#CBD5E1" stroke-width="4" stroke-linecap="round"/>
+
+    <!-- Left Eye -->
+    <circle cx="205" cy="225" r="44" fill="#FFFFFF"/>
+    <circle cx="205" cy="225" r="44" fill="none" stroke="#E2E8F0" stroke-width="3"/>
+    <circle cx="218" cy="225" r="24" fill="#1E293B"/>
+    <circle cx="226" cy="216" r="9" fill="#FFFFFF"/>
+
+    <!-- Right Eye -->
+    <circle cx="307" cy="225" r="44" fill="#FFFFFF"/>
+    <circle cx="307" cy="225" r="44" fill="none" stroke="#E2E8F0" stroke-width="3"/>
+    <circle cx="294" cy="225" r="24" fill="#1E293B"/>
+    <circle cx="302" cy="216" r="9" fill="#FFFFFF"/>
+
+    <!-- Beak -->
+    <polygon points="256,242 238,272 274,272" fill="url(#beakGrad)"/>
+    
+    <!-- Graduation Cap / Psychology Emblem (Psi symbol in gold) -->
+    <path d="M 256 70 L 330 110 L 256 140 L 182 110 Z" fill="#1E293B"/>
+    <polygon points="325,110 325,135 321,145 329,145" fill="#FFC800"/>
+    <circle cx="325" cy="148" r="5" fill="#FFC800"/>
+  </g>
+
+  <!-- Greek Psi letter (Ψ) for Psychology in subtle gold bottom right -->
+  <g transform="translate(370, 370) scale(0.65)">
+    <circle cx="40" cy="40" r="48" fill="#FFC800" filter="url(#shadow)"/>
+    <path d="M 24 24 L 24 38 C 24 48 32 56 40 56 C 48 56 56 48 56 38 L 56 24 M 40 18 L 40 64" fill="none" stroke="#4A3000" stroke-width="6" stroke-linecap="round"/>
+  </g>
+</svg>
