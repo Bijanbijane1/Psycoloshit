@@ -1,0 +1,31 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+.wrangler/
+server.js
+.aistudio/
+
+# Backups and archive exports (Phase 1/1.2 protection)
+backups/
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.bak
+
+# Mutable user stores and analytics runtime data (Strict data confidentiality)
+users_store*.json
+**/users_store*.json
+site_analytics*.json
+**/site_analytics*.json
+
+# Local database files and Wrangler state
+*.sqlite
+*.sqlite3
+*.db
+

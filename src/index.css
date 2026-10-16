@@ -1,0 +1,303 @@
+@import "tailwindcss";
+
+@layer base {
+  html {
+    font-family: 'Vazirmatn', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    scroll-behavior: smooth;
+    background-color: #FFFFFF;
+    color: #1E293B;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    overflow-x: hidden;
+  }
+
+  body {
+    overflow-x: hidden;
+    min-height: 100vh;
+    min-height: 100dvh;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Optimize touch target response and remove tap delay on mobile devices */
+  button, a, input, select, textarea, [role="button"] {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Accessible focus indicators */
+  :focus-visible {
+    outline: 2px solid #58CC02;
+    outline-offset: 2px;
+  }
+}
+
+/* Mobile Safe Area Inset Support (Notches, Home Gestures, Status Bar) */
+.pb-safe {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0.75rem));
+}
+.pt-safe {
+  padding-top: max(0.5rem, env(safe-area-inset-top, 0.5rem));
+}
+.mb-safe {
+  margin-bottom: max(0.75rem, env(safe-area-inset-bottom, 0.75rem));
+}
+
+/* Smooth momentum touch scrolling */
+.touch-scroll {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Persian Academic Reading Typography */
+.prose-persian {
+  line-height: 1.95;
+  letter-spacing: -0.01em;
+  color: #334155;
+  font-size: 0.975rem;
+}
+
+.prose-persian p {
+  margin-bottom: 1.25rem;
+  text-align: justify;
+}
+
+.prose-persian strong {
+  color: #0F172A;
+  font-weight: 800;
+}
+
+/* Hide scrollbar for clean horizontal filter pills */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #F7F7F7;
+}
+::-webkit-scrollbar-thumb {
+  background: #D1D5DB;
+  border-radius: 9999px;
+  border: 2px solid #F7F7F7;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #9CA3AF;
+}
+
+/* Duolingo Tactile 3D Buttons */
+.duo-btn-green {
+  background-color: #58CC02;
+  border-color: #46A302;
+  color: #FFFFFF;
+  box-shadow: 0 4px 0 #46A302;
+  transition: all 0.1s ease-in-out;
+}
+.duo-btn-green:hover:not(:disabled) {
+  background-color: #61E002;
+}
+.duo-btn-green:active:not(:disabled) {
+  transform: translateY(4px);
+  box-shadow: 0 0 0 #46A302;
+}
+
+.duo-btn-blue {
+  background-color: #1CB0F6;
+  border-color: #1899D6;
+  color: #FFFFFF;
+  box-shadow: 0 4px 0 #1899D6;
+  transition: all 0.1s ease-in-out;
+}
+.duo-btn-blue:hover:not(:disabled) {
+  background-color: #28B9FB;
+}
+.duo-btn-blue:active:not(:disabled) {
+  transform: translateY(4px);
+  box-shadow: 0 0 0 #1899D6;
+}
+
+.duo-btn-yellow {
+  background-color: #FFC800;
+  border-color: #E5A500;
+  color: #4A3000;
+  box-shadow: 0 4px 0 #E5A500;
+  transition: all 0.1s ease-in-out;
+}
+.duo-btn-yellow:hover:not(:disabled) {
+  background-color: #FFD220;
+}
+.duo-btn-yellow:active:not(:disabled) {
+  transform: translateY(4px);
+  box-shadow: 0 0 0 #E5A500;
+}
+
+.duo-btn-orange {
+  background-color: #FF9600;
+  border-color: #E58500;
+  color: #FFFFFF;
+  box-shadow: 0 4px 0 #E58500;
+  transition: all 0.1s ease-in-out;
+}
+.duo-btn-orange:hover:not(:disabled) {
+  background-color: #FFA520;
+}
+.duo-btn-orange:active:not(:disabled) {
+  transform: translateY(4px);
+  box-shadow: 0 0 0 #E58500;
+}
+
+.duo-btn-red {
+  background-color: #FF4B4B;
+  border-color: #EA2B2B;
+  color: #FFFFFF;
+  box-shadow: 0 4px 0 #EA2B2B;
+  transition: all 0.1s ease-in-out;
+}
+.duo-btn-red:hover:not(:disabled) {
+  background-color: #FF5F5F;
+}
+.duo-btn-red:active:not(:disabled) {
+  transform: translateY(4px);
+  box-shadow: 0 0 0 #EA2B2B;
+}
+
+.duo-btn-white {
+  background-color: #FFFFFF;
+  border: 2px solid #E5E7EB;
+  color: #4B5563;
+  box-shadow: 0 4px 0 #E5E7EB;
+  transition: all 0.1s ease-in-out;
+}
+.duo-btn-white:hover:not(:disabled) {
+  background-color: #F9FAFB;
+}
+.duo-btn-white:active:not(:disabled) {
+  transform: translateY(4px);
+  box-shadow: 0 0 0 #E5E7EB;
+}
+
+.duo-btn-purple {
+  background-color: #CE82FF;
+  border-color: #A557DF;
+  color: #FFFFFF;
+  box-shadow: 0 4px 0 #A557DF;
+  transition: all 0.1s ease-in-out;
+}
+.duo-btn-purple:hover:not(:disabled) {
+  background-color: #D697FF;
+}
+.duo-btn-purple:active:not(:disabled) {
+  transform: translateY(4px);
+  box-shadow: 0 0 0 #A557DF;
+}
+
+/* Winding path pulsing ring */
+@keyframes duo-pulse-ring {
+  0% {
+    transform: scale(0.96);
+    box-shadow: 0 0 0 0 rgba(88, 204, 2, 0.65), 0 0 20px rgba(88, 204, 2, 0.4);
+  }
+  70% {
+    transform: scale(1.02);
+    box-shadow: 0 0 0 16px rgba(88, 204, 2, 0), 0 0 30px rgba(88, 204, 2, 0);
+  }
+  100% {
+    transform: scale(0.96);
+    box-shadow: 0 0 0 0 rgba(88, 204, 2, 0), 0 0 0 rgba(88, 204, 2, 0);
+  }
+}
+
+.duo-active-node {
+  animation: duo-pulse-ring 2.2s infinite cubic-bezier(0.45, 0, 0.55, 1);
+}
+
+/* Subtle terrain / graph paper map background */
+.duo-map-grid {
+  background-image: 
+    radial-gradient(circle at 50% 50%, rgba(226, 232, 240, 0.6) 1.5px, transparent 1.5px);
+  background-size: 28px 28px;
+}
+
+/* Duolingo tactile 3D card */
+.duo-card-3d {
+  background-color: #FFFFFF;
+  border: 2px solid #E2E8F0;
+  border-bottom: 5px solid #CBD5E1;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.duo-card-3d:hover {
+  border-color: #CBD5E1;
+  border-bottom-color: #94A3B8;
+}
+
+/* Speech bubble caret */
+.duo-bubble-caret::after {
+  content: '';
+  position: absolute;
+  bottom: -8px;
+  right: 28px;
+  width: 0;
+  height: 0;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 8px solid #FFFFFF;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-6px); }
+  40%, 80% { transform: translateX(6px); }
+}
+
+.animate-shake {
+  animation: shake 0.4s ease-in-out;
+}
+
+@keyframes starBounce {
+  0% { transform: scale(0.3) rotate(-20deg); opacity: 0; }
+  60% { transform: scale(1.2) rotate(10deg); opacity: 1; }
+  80% { transform: scale(0.95) rotate(-5deg); }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+
+.animate-star-bounce {
+  animation: starBounce 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes rayRotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-ray-rotate {
+  animation: rayRotate 25s linear infinite;
+}
+
+@keyframes floatMascot {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+.animate-float-mascot {
+  animation: floatMascot 3s ease-in-out infinite;
+}
+
+/* Accessibility: Respect Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+

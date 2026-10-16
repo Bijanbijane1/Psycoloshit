@@ -1,0 +1,64 @@
+{
+  "id": "/",
+  "name": "مرجع جامع و هوشمند روان‌شناسی",
+  "short_name": "روان‌لینگو",
+  "description": "سامانه تعاملی و هوشمند آموزش سرفصل‌های مرجع روان‌شناسی همراه با کتابخانه جامع آفلاین، متون آکادمیک و ساده، کوئیزهای تطبیقی، آزمون‌های بالینی و مسیر ۱۰۰ مرحله‌ای.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#58CC02",
+  "background_color": "#ffffff",
+  "dir": "rtl",
+  "lang": "fa",
+  "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "categories": ["education", "books", "lifestyle"],
+  "shortcuts": [
+    {
+      "name": "مسیر یادگیری (۱۰۰ مرحله)",
+      "short_name": "مسیر",
+      "description": "ادامه یادگیری در مسیر ۱۰۰ مرحله‌ای دولینگو",
+      "url": "/?tab=dashboard",
+      "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "کتابچه آفلاین سرفصل‌ها",
+      "short_name": "کتابچه",
+      "description": "مطالعه آفلاین فصول و دروس روان‌شناسی",
+      "url": "/?tab=book",
+      "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "مرکز کوئیز و تمرین",
+      "short_name": "کوئیز",
+      "description": "آزمون‌ها و تمرین‌های تطبیقی",
+      "url": "/?tab=quiz",
+      "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
+    }
+  ]
+}

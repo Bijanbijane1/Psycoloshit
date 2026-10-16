@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
+    <title>مرجع جامع و هوشمند روان‌شناسی</title>
+    <meta name="description" content="سامانه تعاملی و هوشمند آموزش سرفصل‌های مرجع روان‌شناسی همراه با کتابخانه جامع آفلاین، متون آکادمیک و ساده، کوئیزهای تطبیقی، آزمون‌های بالینی، تحلیل پیشرفت و پشتیبانی تحصیلی هوش مصنوعی." />
+    <meta property="og:title" content="مرجع جامع و هوشمند روان‌شناسی" />
+    <meta property="og:description" content="سامانه تعاملی و هوشمند آموزش سرفصل‌های مرجع روان‌شناسی همراه با کتابخانه جامع آفلاین، متون آکادمیک و ساده، کوئیزهای تطبیقی، آزمون‌های بالینی، تحلیل پیشرفت و پشتیبانی تحصیلی هوش مصنوعی." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#58CC02" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="روان‌لینگو" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/pwa-192x192.png" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  </head>
+  <body class="font-sans antialiased bg-slate-50 text-slate-900 selection:bg-indigo-100 selection:text-indigo-900">
+    <div id="root"></div>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch(() => {});
+        });
+      }
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
