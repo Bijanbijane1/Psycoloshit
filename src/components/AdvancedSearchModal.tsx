@@ -65,11 +65,11 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-2xs flex items-center justify-center p-4 animate-fadeIn select-none">
-      <div className="bg-white border-2 border-b-4 border-slate-200 rounded-3xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden animate-scaleUp">
+    <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-2xs flex items-center justify-center p-2.5 sm:p-4 pb-safe animate-fadeIn select-none">
+      <div className="bg-white border-2 border-b-4 border-slate-200 rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-2xl max-h-[92dvh] flex flex-col overflow-hidden animate-scaleUp">
         {/* Header Bar */}
-        <div className="p-4 border-b-2 border-slate-100 flex items-center gap-3">
-          <DuoMascot mood="happy" size={36} animate={false} />
+        <div className="p-3 sm:p-4 border-b-2 border-slate-100 flex items-center gap-2.5 sm:gap-3 shrink-0">
+          <DuoMascot mood="happy" size={34} animate={false} />
           <div className="flex-1 relative">
             <Search className="w-5 h-5 text-[#1CB0F6] absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
@@ -83,7 +83,8 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl cursor-pointer"
+            className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl cursor-pointer min-w-[38px] min-h-[38px] flex items-center justify-center shrink-0"
+            title="بستن"
           >
             <X className="w-5 h-5" />
           </button>

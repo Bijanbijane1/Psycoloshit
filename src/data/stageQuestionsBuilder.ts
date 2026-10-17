@@ -1,4 +1,4 @@
-import { Question } from '../types/psychology';
+import type { Question } from '../types/psychology.ts';
 
 // Interface for blueprint input from section1Stages
 export interface BlueprintForBuilder {

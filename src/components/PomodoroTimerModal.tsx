@@ -217,21 +217,21 @@ export const PomodoroTimerModal: React.FC<PomodoroTimerModalProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-2xs animate-fadeIn select-none">
-      <div className="bg-white border-2 border-b-6 border-slate-300 rounded-3xl p-6 sm:p-7 max-w-md w-full shadow-2xl relative animate-scaleUp text-right">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-5 pb-safe bg-slate-900/60 backdrop-blur-2xs animate-fadeIn select-none">
+      <div className="bg-white border-2 border-b-6 border-slate-300 rounded-2xl sm:rounded-3xl p-4 sm:p-7 max-w-md w-full max-h-[92dvh] overflow-y-auto overscroll-contain touch-scroll shadow-2xl relative animate-scaleUp text-right pb-safe">
         {/* Top Controls Bar */}
         <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
           <div className="flex items-center gap-2">
             <button
               onClick={() => setIsMinimized(true)}
-              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer min-w-[38px] min-h-[38px] flex items-center justify-center"
               title="کوچک کردن تایمر هنگام مطالعه"
             >
               <Minimize2 className="w-4 h-4" />
             </button>
             <button
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer min-w-[38px] min-h-[38px] flex items-center justify-center"
               title="بستن"
             >
               <X className="w-4 h-4" />

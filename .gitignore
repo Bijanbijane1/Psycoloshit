@@ -6,3 +6,30 @@ coverage/
 *.log
 .env*
 !.env.example
+.wrangler/
+server.js
+.aistudio/
+
+# Backups and archive exports (Phase 1/1.2/5D protection)
+backups/
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+!phase-5c-security-transfer.zip
+*.bak
+*.bundle
+
+# Mutable user stores, session stores, and analytics runtime data (Strict data confidentiality)
+users_store*.json
+**/users_store*.json
+sessions_store*.json
+**/sessions_store*.json
+site_analytics*.json
+**/site_analytics*.json
+
+# Local database files and Wrangler state
+*.sqlite
+*.sqlite3
+*.db
+

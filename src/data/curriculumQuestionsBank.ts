@@ -2,7 +2,7 @@
 // Ensuring 100% pedagogical precision, scientific rigor, DSM-5-TR / Hilgard conformity,
 // and complete coverage across all 5 question types (MC, TF, FB, MP, CS).
 
-import { Question } from '../types/psychology';
+import type { Question } from '../types/psychology.ts';
 
 export const CHAPTER_QUESTIONS_RECORD: Record<string, Question[]> = {
   // ==========================================

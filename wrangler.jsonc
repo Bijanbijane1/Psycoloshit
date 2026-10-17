@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "psychomaster",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2024-10-12",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "psychomaster-db",
+      "database_id": "13bf8598-0513-4c29-81d9-2c0fa79f5ef8"
+    }
+  ]
+}

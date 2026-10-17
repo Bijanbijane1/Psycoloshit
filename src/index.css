@@ -27,9 +27,136 @@
 
   /* Accessible focus indicators */
   :focus-visible {
-    outline: 2px solid #58CC02;
+    outline: 2px solid #4F46E5;
     outline-offset: 2px;
   }
+}
+
+/* Glassmorphism & Frosted Glass Core Classes */
+.glass-header {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.85);
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.03);
+}
+
+.glass-panel {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 10px 30px -5px rgba(30, 27, 75, 0.05), 0 4px 12px -2px rgba(30, 27, 75, 0.03);
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(241, 245, 249, 0.95);
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.04);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-card:hover {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(199, 210, 254, 0.8);
+  box-shadow: 0 12px 32px -4px rgba(79, 70, 229, 0.09);
+  transform: translateY(-2px);
+}
+
+/* Academic Digital Paper for Book Reader & Focus Reading */
+.glass-paper {
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(226, 232, 240, 0.85);
+  box-shadow: 0 4px 24px -2px rgba(15, 23, 42, 0.05);
+}
+
+.glass-pill {
+  background: rgba(248, 250, 252, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(226, 232, 240, 0.85);
+}
+
+/* Soft Neumorphic Utilities */
+.neumorphic-card {
+  background: #FFFFFF;
+  border-radius: 1.25rem;
+  box-shadow: 6px 6px 18px rgba(203, 213, 225, 0.4), -6px -6px 18px rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(241, 245, 249, 0.85);
+}
+
+.neumorphic-button {
+  background: #FFFFFF;
+  border: 1px solid rgba(226, 232, 240, 0.85);
+  box-shadow: 3px 3px 10px rgba(203, 213, 225, 0.45), -3px -3px 10px rgba(255, 255, 255, 0.95);
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.neumorphic-button:active {
+  box-shadow: inset 2px 2px 6px rgba(203, 213, 225, 0.55), inset -2px -2px 6px rgba(255, 255, 255, 0.95);
+  transform: scale(0.98);
+}
+
+.neumorphic-inset {
+  box-shadow: inset 2px 2px 6px rgba(203, 213, 225, 0.4), inset -2px -2px 6px rgba(255, 255, 255, 0.95);
+  background: #F8FAFC;
+}
+
+/* Academic Tactile Primary Buttons */
+.academic-btn-primary {
+  background: linear-gradient(135deg, #4338CA 0%, #3730A3 100%);
+  border: 1px solid #312E81;
+  border-bottom: 4px solid #1E1B4B;
+  color: #FFFFFF;
+  box-shadow: 0 4px 14px -2px rgba(67, 56, 202, 0.35);
+  transition: all 0.12s ease-in-out;
+}
+
+.academic-btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #4F46E5 0%, #4338CA 100%);
+  transform: translateY(-1px);
+}
+
+.academic-btn-primary:active:not(:disabled) {
+  transform: translateY(3px);
+  border-bottom-width: 1px;
+  box-shadow: 0 1px 4px rgba(67, 56, 202, 0.2);
+}
+
+/* Academic Tactile Secondary Buttons */
+.academic-btn-secondary {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-bottom: 4px solid #CBD5E1;
+  color: #1E293B;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  transition: all 0.12s ease-in-out;
+}
+
+.academic-btn-secondary:hover:not(:disabled) {
+  background: #F8FAFC;
+  border-color: #CBD5E1;
+}
+
+.academic-btn-secondary:active:not(:disabled) {
+  transform: translateY(3px);
+  border-bottom-width: 1px;
+  box-shadow: none;
+}
+
+/* Deep Academic Typography */
+.indigo-gradient-text {
+  background: linear-gradient(135deg, #0F172A 0%, #1E1B4B 35%, #4338CA 70%, #6366F1 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.academic-glow {
+  box-shadow: 0 0 25px -3px rgba(79, 70, 229, 0.25);
 }
 
 /* Mobile Safe Area Inset Support (Notches, Home Gestures, Status Bar) */
@@ -50,14 +177,14 @@
 
 /* Persian Academic Reading Typography */
 .prose-persian {
-  line-height: 1.95;
-  letter-spacing: -0.01em;
+  line-height: 2.15;
+  letter-spacing: -0.015em;
   color: #334155;
-  font-size: 0.975rem;
+  font-size: 1.025rem;
 }
 
 .prose-persian p {
-  margin-bottom: 1.25rem;
+  margin-bottom: 1.5rem;
   text-align: justify;
 }
 
@@ -198,43 +325,49 @@
   box-shadow: 0 0 0 #A557DF;
 }
 
-/* Winding path pulsing ring */
+/* Winding path pulsing ring with Indigo-Violet Glow */
 @keyframes duo-pulse-ring {
   0% {
     transform: scale(0.96);
-    box-shadow: 0 0 0 0 rgba(88, 204, 2, 0.65), 0 0 20px rgba(88, 204, 2, 0.4);
+    box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.65), 0 0 25px rgba(79, 70, 229, 0.45);
   }
   70% {
-    transform: scale(1.02);
-    box-shadow: 0 0 0 16px rgba(88, 204, 2, 0), 0 0 30px rgba(88, 204, 2, 0);
+    transform: scale(1.03);
+    box-shadow: 0 0 0 16px rgba(79, 70, 229, 0), 0 0 35px rgba(79, 70, 229, 0);
   }
   100% {
     transform: scale(0.96);
-    box-shadow: 0 0 0 0 rgba(88, 204, 2, 0), 0 0 0 rgba(88, 204, 2, 0);
+    box-shadow: 0 0 0 0 rgba(79, 70, 229, 0), 0 0 0 rgba(79, 70, 229, 0);
   }
 }
 
 .duo-active-node {
-  animation: duo-pulse-ring 2.2s infinite cubic-bezier(0.45, 0, 0.55, 1);
+  animation: duo-pulse-ring 2.4s infinite cubic-bezier(0.45, 0, 0.55, 1);
 }
 
-/* Subtle terrain / graph paper map background */
+/* Elegant Academic subtle dot-matrix background */
 .duo-map-grid {
   background-image: 
-    radial-gradient(circle at 50% 50%, rgba(226, 232, 240, 0.6) 1.5px, transparent 1.5px);
-  background-size: 28px 28px;
+    radial-gradient(circle at 50% 50%, rgba(99, 102, 241, 0.12) 1.5px, transparent 1.5px);
+  background-size: 24px 24px;
 }
 
-/* Duolingo tactile 3D card */
+/* Glass & Neumorphic tactile card */
 .duo-card-3d {
-  background-color: #FFFFFF;
-  border: 2px solid #E2E8F0;
-  border-bottom: 5px solid #CBD5E1;
-  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  background-color: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-bottom: 4px solid #CBD5E1;
+  box-shadow: 0 4px 20px -2px rgba(30, 27, 75, 0.04);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .duo-card-3d:hover {
-  border-color: #CBD5E1;
-  border-bottom-color: #94A3B8;
+  background-color: #FFFFFF;
+  border-color: rgba(199, 210, 254, 0.9);
+  border-bottom-color: #818CF8;
+  box-shadow: 0 12px 28px -4px rgba(79, 70, 229, 0.09);
+  transform: translateY(-2px);
 }
 
 /* Speech bubble caret */

@@ -247,29 +247,30 @@ export const BookReaderView: React.FC<BookReaderViewProps> = ({
       {/* ======================================================== */}
       {/* 2. MAIN GUIDEBOOK / STORY READING ARENA                  */}
       {/* ======================================================== */}
-      <main className="flex-1 max-w-3xl flex flex-col gap-5">
-        {/* Unit Top Banner (Duolingo Guidebook Header) */}
-        <div className="bg-[#58CC02] border-b-4 border-[#46A302] rounded-3xl p-4 sm:p-5 text-white shadow-md flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5 sm:gap-3 flex-1 min-w-0">
+      <main className="flex-1 max-w-3xl xl:max-w-4xl w-full flex flex-col gap-5">
+        {/* Unit Top Banner (Academic Guidebook Header) */}
+        <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-indigo-900 border border-indigo-900/60 border-b-4 border-b-slate-950 rounded-3xl p-5 sm:p-6 text-white shadow-xl flex items-center justify-between gap-3 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="flex items-center gap-2.5 sm:gap-3 flex-1 min-w-0 relative z-10">
             <button
               onClick={() => setIsSidebarOpen(true)}
-              className="lg:hidden p-2 rounded-xl bg-white/20 hover:bg-white/30 text-white cursor-pointer min-w-[40px] min-h-[40px] flex items-center justify-center shrink-0"
+              className="lg:hidden p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white cursor-pointer min-w-[40px] min-h-[40px] flex items-center justify-center shrink-0 border border-white/10"
               title="فهرست سرفصل‌ها"
             >
               <Menu className="w-5 h-5" />
             </button>
             <div className="min-w-0 flex-1">
-              <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider opacity-90 block truncate">
-                کتابچه راهنما · بخش {currentSection.id}: {currentSection.title}
+              <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-indigo-200/90 block truncate">
+                کتابچه راهنما و مطالعه عمیق · بخش {currentSection.id}: {currentSection.title}
               </span>
-              <h1 className="text-lg sm:text-2xl font-black mt-0.5 leading-tight">{currentChapter.title}</h1>
-              <p className="text-[11px] sm:text-xs font-bold opacity-80 mt-0.5 truncate">
+              <h1 className="text-xl sm:text-2xl font-black mt-1 leading-tight text-white">{currentChapter.title}</h1>
+              <p className="text-[11px] sm:text-xs font-bold text-slate-300/80 mt-1 truncate">
                 {currentChapter.englishTitle}
               </p>
             </div>
           </div>
 
-          <div className="shrink-0 hidden xs:block">
+          <div className="shrink-0 hidden xs:block relative z-10 p-2 rounded-2xl bg-white/10 backdrop-blur-md border border-white/10">
             <DuoMascot mood="tutor" size={54} animate={false} />
           </div>
         </div>
@@ -281,35 +282,35 @@ export const BookReaderView: React.FC<BookReaderViewProps> = ({
           </div>
         )}
 
-        {/* Duolingo Controls Toolbar */}
-        <div className="bg-white border-2 border-b-4 border-slate-200 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-3 shadow-xs">
-          {/* Segmented Duolingo 3D Pills (Academic vs Simple) */}
-          <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
+        {/* Academic Controls Toolbar */}
+        <div className="glass-panel rounded-2xl p-3 flex flex-wrap items-center justify-between gap-3 shadow-2xs border border-white/80">
+          {/* Segmented Pills (Academic vs Simple) */}
+          <div className="flex items-center bg-slate-100/90 p-1 rounded-xl border border-slate-200/80">
             <button
               onClick={() => {
                 playDuoSound('click');
                 setReadingMode('academic');
               }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
                 readingMode === 'academic'
-                  ? 'bg-white text-slate-800 shadow-xs border border-slate-200'
-                  : 'text-slate-500 hover:text-slate-800'
+                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              متن دانشگاهی
+              متن دانشگاهی و مرجع
             </button>
             <button
               onClick={() => {
                 playDuoSound('click');
                 setReadingMode('simplified');
               }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1 ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
                 readingMode === 'simplified'
-                  ? 'bg-white text-[#58CC02] shadow-xs border border-slate-200'
-                  : 'text-slate-500 hover:text-slate-800'
+                  ? 'bg-white text-indigo-700 shadow-2xs font-extrabold'
+                  : 'text-slate-500 hover:text-slate-900'
               }`}
             >
-              <Sparkles className="w-3.5 h-3.5 text-[#FFC800] fill-[#FFC800]" />
+              <Sparkles className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
               <span>خلاصه ساده</span>
             </button>
           </div>
@@ -440,8 +441,8 @@ export const BookReaderView: React.FC<BookReaderViewProps> = ({
             }}
             className={`px-3 py-1.5 rounded-xl text-xs font-black whitespace-nowrap transition-all cursor-pointer ${
               activeSubtopicIndex === null
-                ? 'bg-[#58CC02] text-white border-b-4 border-[#46A302]'
-                : 'bg-white border-2 border-slate-200 text-slate-600 hover:bg-slate-50'
+                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+                : 'glass-pill text-slate-600 hover:text-indigo-900 hover:bg-white'
             }`}
           >
             همه مباحث فصل
@@ -455,8 +456,8 @@ export const BookReaderView: React.FC<BookReaderViewProps> = ({
               }}
               className={`px-3 py-1.5 rounded-xl text-xs font-black whitespace-nowrap transition-all cursor-pointer ${
                 activeSubtopicIndex === idx
-                  ? 'bg-[#1CB0F6] text-white border-b-4 border-[#1899D6]'
-                  : 'bg-white border-2 border-slate-200 text-slate-600 hover:bg-slate-50'
+                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+                  : 'glass-pill text-slate-600 hover:text-indigo-900 hover:bg-white'
               }`}
             >
               {st}
@@ -466,15 +467,15 @@ export const BookReaderView: React.FC<BookReaderViewProps> = ({
 
         {/* Note-taking expandable drawer */}
         {showNotesPanel && (
-          <div className="bg-amber-50/80 border-2 border-b-4 border-[#FFC800] rounded-2xl p-4 flex flex-col gap-3">
+          <div className="bg-amber-50/80 border-2 border-b-4 border-amber-300 rounded-2xl p-4 flex flex-col gap-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-black text-amber-950 flex items-center gap-1.5">
-                <FileEdit className="w-4 h-4 text-[#FF9600]" />
+                <FileEdit className="w-4 h-4 text-amber-600" />
                 <span>یادداشت شخصی شما برای این فصل</span>
               </span>
               <button
                 onClick={handleSaveNoteAction}
-                className="duo-btn-yellow px-3 py-1 rounded-xl text-xs font-black flex items-center gap-1 cursor-pointer"
+                className="bg-amber-400 hover:bg-amber-500 text-amber-950 px-3 py-1 rounded-xl text-xs font-black flex items-center gap-1 cursor-pointer transition-all shadow-2xs"
               >
                 <Save className="w-3.5 h-3.5" />
                 <span>{isNoteSaved ? 'ذخیره شد!' : 'ذخیره'}</span>
@@ -484,19 +485,19 @@ export const BookReaderView: React.FC<BookReaderViewProps> = ({
               value={noteContent}
               onChange={(e) => setNoteContent(e.target.value)}
               placeholder="نکات مهم، خلاصه کلمات، یا یادآوری‌های خود را اینجا بنویسید..."
-              className="w-full h-24 p-3 bg-white border border-amber-200 rounded-xl text-xs font-bold text-slate-800 resize-none outline-none focus:border-[#FFC800]"
+              className="w-full h-24 p-3 bg-white border border-amber-200 rounded-xl text-xs font-bold text-slate-800 resize-none outline-none focus:border-amber-400"
             />
           </div>
         )}
 
-        {/* Main Text Content Story Card */}
-        <article className="bg-white border-2 border-b-4 border-slate-200 rounded-3xl p-6 sm:p-8 shadow-xs">
+        {/* Main Text Content Story Card - Deep Study Paper */}
+        <article className="glass-panel bg-white/90 backdrop-blur-md rounded-2xl sm:rounded-3xl p-4 sm:p-8 lg:p-10 shadow-sm border border-white/90">
           {activeSubtopicDetail && (
             <div className="mb-4 pb-3 border-b-2 border-slate-100 flex items-center justify-between">
-              <h2 className="text-lg font-black text-[#1CB0F6]">
+              <h2 className="text-base sm:text-lg font-black text-indigo-700">
                 {activeSubtopicDetail.title}
               </h2>
-              <span className="text-[11px] font-black px-2 py-0.5 rounded-full bg-sky-50 text-sky-700">
+              <span className="text-[10px] sm:text-[11px] font-black px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
                 مبحث تخصصی
               </span>
             </div>
@@ -505,10 +506,10 @@ export const BookReaderView: React.FC<BookReaderViewProps> = ({
           <div
             className={`prose-persian max-w-none space-y-4 ${
               fontSize === 'sm'
-                ? 'text-sm leading-relaxed'
+                ? 'text-xs sm:text-sm leading-relaxed'
                 : fontSize === 'lg'
-                ? 'text-lg leading-loose'
-                : 'text-base leading-relaxed sm:leading-loose'
+                ? 'text-base sm:text-lg leading-loose'
+                : 'text-sm sm:text-base leading-relaxed sm:leading-loose'
             }`}
           >
             {currentDisplayContent.split('\n\n').map((paragraph, pIdx) => (
@@ -521,18 +522,18 @@ export const BookReaderView: React.FC<BookReaderViewProps> = ({
 
         {/* Key Points (نکات طلایی درس) */}
         {currentChapter.keyPoints && currentChapter.keyPoints.length > 0 && (
-          <div className="bg-white border-2 border-b-4 border-[#58CC02] rounded-3xl p-6 shadow-xs">
-            <div className="flex items-center gap-2 mb-4 text-[#58CC02] font-black">
-              <Star className="w-5 h-5 fill-[#FFC800] text-[#FFC800]" />
-              <h3 className="text-base font-black text-slate-800">نکات کلیدی برای آزمون</h3>
+          <div className="glass-panel rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-sm border border-white/80">
+            <div className="flex items-center gap-2 mb-3.5 text-indigo-700 font-black">
+              <Star className="w-5 h-5 fill-amber-400 text-amber-500" />
+              <h3 className="text-sm sm:text-base font-black text-slate-900">نکات کلیدی برای آزمون و تثبیت مفهوم</h3>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
               {currentChapter.keyPoints.map((point, kIdx) => (
                 <div
                   key={kIdx}
-                  className="bg-emerald-50/60 border border-emerald-200 rounded-2xl p-3.5 flex items-start gap-2.5 text-xs font-black text-emerald-950"
+                  className="bg-white/80 border border-indigo-100 rounded-xl sm:rounded-2xl p-3 sm:p-3.5 flex items-start gap-2.5 text-xs font-black text-slate-800 shadow-2xs hover:border-indigo-300 transition-colors"
                 >
-                  <div className="w-5 h-5 rounded-full bg-[#58CC02] text-white flex items-center justify-center shrink-0 text-[10px]">
+                  <div className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center shrink-0 text-[10px] font-black">
                     ✓
                   </div>
                   <span className="leading-relaxed">{point}</span>
@@ -544,16 +545,16 @@ export const BookReaderView: React.FC<BookReaderViewProps> = ({
 
         {/* Duolingo Flashcards (کارت‌های واژگان) */}
         {currentChapter.flashcards && currentChapter.flashcards.length > 0 && (
-          <div className="bg-white border-2 border-b-4 border-slate-200 rounded-3xl p-6 shadow-xs">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2 font-black text-slate-800">
-                <DuoMascot mood="happy" size={36} animate={false} />
-                <h3 className="text-base font-black">فلش‌کارت‌های تخصصی فصل</h3>
-              </div>
-              <span className="text-xs font-bold text-slate-400">
-                برای مشاهده تعریف بر روی کارت کلیک کن
-              </span>
+          <div className="glass-panel rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-sm border border-white/80">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2 font-black text-slate-900">
+              <DuoMascot mood="happy" size={36} animate={false} />
+              <h3 className="text-base font-black">فلش‌کارت‌های تخصصی فصل</h3>
             </div>
+            <span className="text-xs font-bold text-slate-400">
+              برای مشاهده تعریف بر روی کارت کلیک کن
+            </span>
+          </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {currentChapter.flashcards.map((fc) => {

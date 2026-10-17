@@ -45,14 +45,14 @@ interface DashboardViewProps {
   onCompleteStage?: (record: StageCompletionRecord) => void;
 }
 
-// Duolingo unit color themes
+// Academic Indigo, Sapphire, Amethyst, and Slate unit color themes
 const UNIT_THEMES = [
-  { bg: 'bg-[#58CC02]', border: 'border-[#46A302]', text: 'text-white', lightBg: 'bg-[#E5F6FD]', name: 'سبز دوئو' },
-  { bg: 'bg-[#1CB0F6]', border: 'border-[#1899D6]', text: 'text-white', lightBg: 'bg-[#E5F6FD]', name: 'آبی پرنده‌ای' },
-  { bg: 'bg-[#CE82FF]', border: 'border-[#A557DF]', text: 'text-white', lightBg: 'bg-[#F4E8FF]', name: 'بنفش آمتیست' },
-  { bg: 'bg-[#FF9600]', border: 'border-[#E58500]', text: 'text-white', lightBg: 'bg-[#FFF3E0]', name: 'نارنجی روباهی' },
-  { bg: 'bg-[#FF4B4B]', border: 'border-[#EA2B2B]', text: 'text-white', lightBg: 'bg-[#FFEBEB]', name: 'قرمز یاقوتی' },
-  { bg: 'bg-[#00CD9C]', border: 'border-[#00A77D]', text: 'text-white', lightBg: 'bg-[#E0F8F2]', name: 'فیروزه‌ای' },
+  { bg: 'bg-gradient-to-r from-indigo-700 via-indigo-600 to-blue-700', border: 'border-indigo-800', text: 'text-white', lightBg: 'bg-indigo-50/70', name: 'نیلی آکادمیک' },
+  { bg: 'bg-gradient-to-r from-blue-700 via-blue-600 to-cyan-700', border: 'border-blue-800', text: 'text-white', lightBg: 'bg-sky-50/70', name: 'یاقوت کبود' },
+  { bg: 'bg-gradient-to-r from-violet-700 via-purple-600 to-indigo-700', border: 'border-violet-800', text: 'text-white', lightBg: 'bg-purple-50/70', name: 'آمتیست سلطنتی' },
+  { bg: 'bg-gradient-to-r from-teal-700 via-emerald-600 to-teal-700', border: 'border-teal-800', text: 'text-white', lightBg: 'bg-emerald-50/70', name: 'زمرد خرد' },
+  { bg: 'bg-gradient-to-r from-slate-800 via-slate-700 to-indigo-900', border: 'border-slate-900', text: 'text-white', lightBg: 'bg-slate-100/70', name: 'سرمه‌ای عمیق' },
+  { bg: 'bg-gradient-to-r from-rose-700 via-pink-600 to-rose-700', border: 'border-rose-800', text: 'text-white', lightBg: 'bg-rose-50/70', name: 'مرجانی متین' },
 ];
 
 // Winding sine offsets in pixels (tuned for seamless mobile and desktop display without horizontal overflow)
@@ -223,18 +223,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* MAIN COLUMN: Duolingo Learning Path (100 Chained Stages) */}
       {/* ======================================================== */}
       <div className="flex-1 w-full flex flex-col items-center">
-        {/* Top Header Card: 100-Stage Journey Overview (Decluttered & Streamlined) */}
-        <div className="w-full max-w-xl mb-6 bg-white border-2 border-b-4 border-slate-200 rounded-3xl p-4 sm:p-5 shadow-xs">
-          <div className="flex items-center justify-between gap-3 mb-3">
-            <div className="flex items-center gap-2.5">
-              <DuoMascot mood="streak" size={48} animate={false} />
+        {/* Top Header Card: 100-Stage Journey Overview (Frosted Glass & Academic Neumorphic) */}
+        <div className="w-full max-w-xl lg:max-w-2xl xl:max-w-3xl mb-6 glass-panel rounded-3xl p-4 sm:p-6 shadow-sm border border-white/80 relative overflow-hidden">
+          <div className="flex items-center justify-between gap-3 mb-3.5">
+            <div className="flex items-center gap-3">
+              <div className="p-1.5 rounded-2xl bg-gradient-to-tr from-indigo-100 to-white shadow-2xs border border-indigo-100">
+                <DuoMascot mood="streak" size={44} animate={false} />
+              </div>
               <div className="text-right">
                 <div className="flex items-center gap-2">
-                  <h2 className="text-base sm:text-lg font-black text-slate-800">
-                    بخش اول: ۱۰۰ مرحله زنجیره‌ای
+                  <h2 className="text-base sm:text-lg font-black text-slate-900 tracking-tight">
+                    بخش اول: ۱۰۰ مرحله نقشه راه یادگیری
                   </h2>
-                  <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-[#58CC02]/15 text-[#46A302]">
-                    دولینگو
+                  <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200/60 shadow-2xs">
+                    روان‌شناسی
                   </span>
                 </div>
                 <p className="text-xs font-bold text-slate-500 mt-0.5">
@@ -246,7 +248,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             {/* Quick Play Active Stage Button */}
             <button
               onClick={() => handleStageClick(currentActiveStage)}
-              className="duo-btn-green px-3.5 py-2 rounded-2xl text-xs font-black cursor-pointer flex items-center gap-1.5 shadow-xs"
+              className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white px-4 py-2 rounded-2xl text-xs font-black cursor-pointer flex items-center gap-1.5 shadow-md shadow-indigo-600/25 transition-all hover:scale-102"
               title="شروع مرحله فعال"
             >
               <Zap className="w-3.5 h-3.5 fill-white" />
@@ -255,21 +257,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           {/* Clean Progress bar */}
-          <div className="space-y-1.5 pt-2.5 border-t border-slate-100">
+          <div className="space-y-1.5 pt-3 border-t border-slate-100/80">
             <div className="flex items-center justify-between text-xs font-black">
-              <span className="text-slate-600 flex items-center gap-1">
-                <Star className="w-3.5 h-3.5 fill-[#FFC800] text-[#FFC800]" />
+              <span className="text-slate-600 flex items-center gap-1.5">
+                <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-500" />
                 <span>
                   {completedStageCount} از ۱۰۰ مرحله تکمیل شده ({Math.round((completedStageCount / 100) * 100)}٪)
                 </span>
               </span>
-              <span className="text-[#58CC02] font-black">
+              <span className="text-indigo-600 font-extrabold">
                 سطح فعال: {currentUnlockedStageNumber}
               </span>
             </div>
-            <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden p-0.5 border border-slate-200">
+            <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden p-0.5 border border-slate-200/60">
               <div
-                className="h-full bg-gradient-to-r from-[#58CC02] to-[#FFC800] rounded-full transition-all duration-500"
+                className="h-full bg-gradient-to-r from-indigo-600 via-indigo-500 to-blue-500 rounded-full transition-all duration-500 shadow-2xs"
                 style={{ width: `${Math.max(2, (completedStageCount / 100) * 100)}%` }}
               />
             </div>
@@ -449,7 +451,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                     return (
                       <div
-                        className="relative w-full max-w-[360px] sm:max-w-[400px] flex flex-col items-center py-2 select-none"
+                        className="relative w-full max-w-[340px] sm:max-w-[400px] flex flex-col items-center py-2 select-none overflow-x-hidden"
                         style={{ height: totalUnitHeight }}
                       >
                         {/* Continuous SVG Serpentine Road */}
@@ -492,7 +494,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             <path
                               d={activeRoadPath}
                               fill="none"
-                              stroke="#58CC02"
+                              stroke="#4F46E5"
                               strokeWidth="6"
                               strokeDasharray="8 6"
                               strokeLinecap="round"
@@ -523,23 +525,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                               {/* Duo Mascot perched on current active node! */}
                               {isCurrent && (
                                 <div className="absolute -top-19 z-20 flex flex-col items-center pointer-events-none animate-float-mascot">
-                                  <div className="bg-white border-2 border-b-4 border-slate-200 rounded-2xl px-3.5 py-1.5 shadow-md text-xs font-black text-[#58CC02] flex items-center gap-1.5 duo-bubble-caret relative">
+                                  <div className="bg-white/95 backdrop-blur-md border border-slate-200 border-b-4 border-b-indigo-200/80 rounded-2xl px-3.5 py-1.5 shadow-md text-xs font-black text-indigo-700 flex items-center gap-1.5 duo-bubble-caret relative">
                                     <span>مرحله {stage.stageNumber}: شروع کن!</span>
-                                    <Sparkles className="w-3.5 h-3.5 text-[#FFC800] fill-[#FFC800]" />
+                                    <Sparkles className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
                                   </div>
                                   <DuoMascot mood="happy" size={54} animate={false} className="mt-1" />
                                 </div>
                               )}
 
-                              {/* Duolingo 3D Stepping Stone Button */}
+                              {/* Duolingo 3D Stepping Stone Button - Refined Academic Gems */}
                               <button
                                 onClick={() => handleStageClick(stage)}
                                 className={`w-19 h-19 sm:w-21 sm:h-21 rounded-full flex items-center justify-center cursor-pointer transition-all active:translate-y-1 relative group ${
                                   isCompleted
-                                    ? 'bg-[#FFC800] border-b-[6px] border-[#E5A500] text-amber-950 shadow-md hover:scale-105'
+                                    ? 'bg-gradient-to-tr from-amber-400 via-amber-300 to-amber-200 border-b-[6px] border-amber-600 text-amber-950 shadow-md hover:scale-105'
                                     : isCurrent
-                                    ? 'bg-[#58CC02] border-b-[6px] border-[#46A302] text-white shadow-lg duo-active-node hover:scale-105'
-                                    : 'bg-[#E5E7EB] border-b-[6px] border-[#D1D5DB] text-slate-400 hover:bg-slate-200'
+                                    ? 'bg-gradient-to-tr from-indigo-700 via-indigo-600 to-blue-600 border-b-[6px] border-indigo-900 text-white shadow-xl duo-active-node hover:scale-105'
+                                    : 'bg-slate-200/85 border-b-[6px] border-slate-300/90 text-slate-400 hover:bg-slate-200'
                                 }`}
                                 title={`${stage.stageNumber}. ${stage.title} (${isLocked ? 'قفل' : isCompleted ? 'تکمیل شده' : 'مرحله جاری'})`}
                               >
@@ -558,7 +560,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                     isCompleted
                                       ? 'bg-amber-100 text-amber-950 border-amber-300'
                                       : isCurrent
-                                      ? 'bg-emerald-100 text-emerald-950 border-emerald-300'
+                                      ? 'bg-indigo-100 text-indigo-950 border-indigo-300'
                                       : 'bg-white text-slate-500 border-slate-300'
                                   }`}
                                 >
@@ -740,51 +742,51 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </div>
 
       {/* ======================================================== */}
-      {/* RIGHT SIDEBAR WIDGETS (Duolingo Desktop Style)           */}
+      {/* RIGHT SIDEBAR WIDGETS (Academic Glassmorphic Style)     */}
       {/* ======================================================== */}
-      <div className="w-full lg:w-80 flex flex-col gap-5 lg:sticky lg:top-20">
-        {/* 1. Super Duo Promo Card */}
-        <div className="bg-gradient-to-br from-[#CE82FF] to-[#8035CE] rounded-3xl p-5 text-white shadow-md relative overflow-hidden border-2 border-b-4 border-[#A557DF]">
+      <div className="w-full lg:w-80 flex flex-col md:grid md:grid-cols-2 lg:flex lg:flex-col gap-5 lg:sticky lg:top-20">
+        {/* 1. Academic Psycholingo Card */}
+        <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 rounded-3xl p-5 text-white shadow-lg relative overflow-hidden border border-indigo-500/30">
           <div className="relative z-10 flex flex-col items-start text-right">
-            <span className="text-[10px] font-black uppercase tracking-wider bg-white/20 px-2 py-0.5 rounded-full mb-1">
-              SUPER PSYCHOLINGO
+            <span className="text-[10px] font-black uppercase tracking-wider bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 px-2 py-0.5 rounded-full mb-1">
+              روان‌شناسی آکادمیک
             </span>
-            <h3 className="text-lg font-black leading-tight">
-              یادگیری روان‌شناسی با زنجیره ۱۰۰ مرحله‌ای و جان بی‌نهایت!
+            <h3 className="text-lg font-black leading-tight tracking-tight">
+              یادگیری عمیق مفاهیم با ۱۰۰ مرحله طبقه‌بندی‌شده
             </h3>
-            <p className="text-xs opacity-90 font-bold mt-1.5 leading-relaxed">
-              با مربیگری اختصاصی Duo تمام مراحل مبانی را گام به گام پشت سر بگذارید.
+            <p className="text-xs text-slate-300 font-bold mt-1.5 leading-relaxed">
+              با مربیگری هوشمند Duo، مبانی، فلسفه و مکاتب روان‌شناسی را گام به گام فرا بگیرید.
             </p>
             <button
               onClick={() => handleStageClick(currentActiveStage)}
-              className="mt-4 bg-white text-[#8035CE] hover:bg-slate-50 px-4 py-2.5 rounded-xl font-black text-xs border-b-4 border-slate-200 active:translate-y-1 active:border-b-0 cursor-pointer shadow-xs"
+              className="mt-4 bg-white text-indigo-950 hover:bg-slate-100 px-4 py-2.5 rounded-xl font-black text-xs cursor-pointer shadow-md shadow-black/20 hover:scale-102 transition-all"
             >
               شروع مرحله {currentUnlockedStageNumber} ⚡
             </button>
           </div>
-          <div className="absolute -left-3 -bottom-4 opacity-90 pointer-events-none">
+          <div className="absolute -left-3 -bottom-4 opacity-80 pointer-events-none">
             <DuoMascot mood="super" size={80} animate={false} />
           </div>
         </div>
 
         {/* 2. Diamond League (لیگ الماس) Widget */}
-        <div className="bg-white border-2 border-b-4 border-slate-200 rounded-2xl p-4 shadow-xs">
+        <div className="glass-panel rounded-3xl p-4 sm:p-5 shadow-xs border border-white/80">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div className="flex items-center gap-2">
-              <Trophy className="w-5 h-5 text-[#FFC800] fill-[#FFC800]" />
-              <h4 className="text-sm font-black text-slate-800">لیگ الماس (هفته ۱۲)</h4>
+              <Trophy className="w-5 h-5 text-amber-500 fill-amber-400" />
+              <h4 className="text-sm font-black text-slate-900">لیگ برتر آکادمیک (هفته ۱۲)</h4>
             </div>
-            <span className="text-[11px] font-black text-[#1CB0F6]">رتبه ۳</span>
+            <span className="text-[11px] font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100">رتبه ۳</span>
           </div>
 
-          <div className="flex flex-col gap-2.5 my-3 text-xs font-bold">
+          <div className="flex flex-col gap-2 my-3 text-xs font-bold">
             <div className="flex items-center justify-between p-2 rounded-xl bg-amber-50/70 border border-amber-200 text-amber-950">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-black text-[#FFC800]">۱.</span>
+                <span className="text-sm font-black text-amber-500">۱.</span>
                 <span className="text-base">👩‍⚕️</span>
                 <span>دکتر سارا کیانی</span>
               </div>
-              <span className="font-black text-[#E58500]">۱۴۲۰ XP</span>
+              <span className="font-black text-amber-700">۱۴۲۰ XP</span>
             </div>
 
             <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-700">
@@ -797,13 +799,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
 
             {/* User row */}
-            <div className="flex items-center justify-between p-2 rounded-xl bg-[#E5F6FD] border-2 border-[#1CB0F6] text-[#1899D6]">
+            <div className="flex items-center justify-between p-2.5 rounded-xl bg-indigo-50/90 border-2 border-indigo-600/40 text-indigo-950 shadow-2xs">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-black text-[#1CB0F6]">۳.</span>
+                <span className="text-sm font-black text-indigo-600">۳.</span>
                 <DuoMascot mood="happy" size={24} animate={false} />
                 <span className="font-black">شما (مرحله {currentUnlockedStageNumber})</span>
               </div>
-              <span className="font-black">{completedStageCount * 25 + 875} XP</span>
+              <span className="font-black text-indigo-700">{completedStageCount * 25 + 875} XP</span>
             </div>
 
             <div className="flex items-center justify-between p-2 rounded-xl text-slate-500">
@@ -817,18 +819,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="pt-2 border-t border-slate-100 text-center">
-            <span className="text-[11px] font-black text-[#58CC02]">
+            <span className="text-[11px] font-black text-emerald-600">
               ▲ منطقه صعود به تالار افتخارات
             </span>
           </div>
         </div>
 
         {/* 3. Daily Quests (ماموریت‌های روزانه) */}
-        <div className="bg-white border-2 border-b-4 border-slate-200 rounded-2xl p-4 shadow-xs">
+        <div className="glass-panel rounded-3xl p-4 sm:p-5 shadow-xs border border-white/80">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div className="flex items-center gap-2">
-              <Gift className="w-5 h-5 text-[#FF9600]" />
-              <h4 className="text-sm font-black text-slate-800">ماموریت‌های امروز</h4>
+              <Gift className="w-5 h-5 text-indigo-600" />
+              <h4 className="text-sm font-black text-slate-900">ماموریت‌های امروز</h4>
             </div>
             <span className="text-[10px] font-black text-slate-400">بازنشانی در ۹ ساعت</span>
           </div>
@@ -836,14 +838,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="space-y-3 my-3">
             <div>
               <div className="flex justify-between text-xs font-bold text-slate-600 mb-1">
-                <span>تکمیل ۲ مرحله از مسیر زنجیره‌ای</span>
-                <span className="text-[#58CC02] font-black">
+                <span>تکمیل ۲ مرحله از مسیر نقشه راه</span>
+                <span className="text-indigo-600 font-black">
                   {Math.min(2, completedStageCount)}/۲
                 </span>
               </div>
               <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-[#58CC02] rounded-full"
+                  className="h-full bg-gradient-to-r from-indigo-600 to-blue-500 rounded-full"
                   style={{
                     width: `${Math.min(100, (completedStageCount / 2) * 100)}%`,
                   }}
@@ -854,20 +856,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div>
               <div className="flex justify-between text-xs font-bold text-slate-600 mb-1">
                 <span>کسب ۵۰ امتیاز XP جدید</span>
-                <span className="text-[#FF9600] font-black">۴۵/۵۰</span>
+                <span className="text-amber-500 font-black">۴۵/۵۰</span>
               </div>
               <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                <div className="h-full bg-[#FF9600] rounded-full w-[90%]" />
+                <div className="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full w-[90%]" />
               </div>
             </div>
           </div>
         </div>
 
         {/* 4. Badges Preview */}
-        <div className="bg-white border-2 border-b-4 border-slate-200 rounded-2xl p-4 shadow-xs">
+        <div className="glass-panel rounded-3xl p-4 sm:p-5 shadow-xs border border-white/80">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div className="flex items-center gap-2">
-              <Award className="w-5 h-5 text-[#CE82FF]" />
+              <Award className="w-5 h-5 text-indigo-600" />
               <h4 className="text-sm font-black text-slate-800">مدال‌ها و دستاوردها</h4>
             </div>
             <span className="text-[11px] font-black text-indigo-600">

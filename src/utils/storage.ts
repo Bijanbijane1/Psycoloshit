@@ -38,20 +38,34 @@ const defaultProgress: UserProgress = {
   },
 };
 
-export function loadUserProgress(): UserProgress {
+export function getDefaultUserProgress(): UserProgress {
+  return JSON.parse(JSON.stringify(defaultProgress));
+}
+
+export function loadUserProgress(userId?: string): UserProgress {
   try {
+    if (userId) {
+      const userRaw = localStorage.getItem(`${STORAGE_KEY}_${userId}`);
+      if (userRaw) {
+        return { ...getDefaultUserProgress(), ...JSON.parse(userRaw) };
+      }
+    }
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return defaultProgress;
-    return { ...defaultProgress, ...JSON.parse(raw) };
+    if (!raw) return getDefaultUserProgress();
+    return { ...getDefaultUserProgress(), ...JSON.parse(raw) };
   } catch (err) {
     console.error('Error loading user progress:', err);
-    return defaultProgress;
+    return getDefaultUserProgress();
   }
 }
 
-export function saveUserProgress(progress: UserProgress): void {
+export function saveUserProgress(progress: UserProgress, userId?: string): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
+    const serialized = JSON.stringify(progress);
+    localStorage.setItem(STORAGE_KEY, serialized);
+    if (userId) {
+      localStorage.setItem(`${STORAGE_KEY}_${userId}`, serialized);
+    }
   } catch (err) {
     console.error('Error saving user progress:', err);
   }

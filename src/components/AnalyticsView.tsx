@@ -25,6 +25,7 @@ import {
   TrendingUp,
   Globe,
   ShieldCheck,
+  FileText,
 } from 'lucide-react';
 import { DuoMascot } from './DuoMascot';
 import { BadgeIcon } from './BadgeIcon';
@@ -32,6 +33,7 @@ import { BADGE_DEFINITIONS, evaluateBadgeProgress } from '../data/badgeDefinitio
 import { playDuoSound } from '../utils/duoAudio';
 import { SiteAnalyticsData } from '../types/analytics';
 import { fetchSiteTrafficStats, getOrCreateSessionId, getOrCreateVisitorId } from '../utils/siteTracker';
+import { fetchLiveLeaderboard } from '../utils/cloudSync';
 import confetti from 'canvas-confetti';
 
 interface AnalyticsViewProps {
@@ -39,6 +41,7 @@ interface AnalyticsViewProps {
   progress: UserProgress;
   onSelectChapter: (chapter: Chapter) => void;
   onOpenBadges?: () => void;
+  onOpenReportModal?: () => void;
 }
 
 export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
@@ -46,6 +49,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
   progress,
   onSelectChapter,
   onOpenBadges,
+  onOpenReportModal,
 }) => {
   const stats = calculateUserAnalytics(progress);
   const [activeViewMode, setActiveViewMode] = useState<'progress' | 'traffic'>('progress');
@@ -54,6 +58,27 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
   const [autoRefreshTraffic, setAutoRefreshTraffic] = useState<boolean>(true);
   const [isGeneratingAiPlan, setIsGeneratingAiPlan] = useState<boolean>(false);
   const [aiStudyPlan, setAiStudyPlan] = useState<string | null>(null);
+  const [liveLeaderboard, setLiveLeaderboard] = useState<any[]>([]);
+  const [countdownDays, setCountdownDays] = useState<number>(3);
+
+  useEffect(() => {
+    const refreshLeaderboard = () => {
+      fetchLiveLeaderboard().then((res) => {
+        if (res && res.leaderboard?.length > 0) {
+          setLiveLeaderboard(res.leaderboard);
+          setCountdownDays(res.countdownDaysRemaining);
+        }
+      });
+    };
+
+    refreshLeaderboard();
+    window.addEventListener('psychomaster:user-synced', refreshLeaderboard);
+    window.addEventListener('psychomaster:user-logged-out', refreshLeaderboard);
+    return () => {
+      window.removeEventListener('psychomaster:user-synced', refreshLeaderboard);
+      window.removeEventListener('psychomaster:user-logged-out', refreshLeaderboard);
+    };
+  }, [progress]);
 
   const loadTrafficData = async (showLoading = false) => {
     if (showLoading) setIsTrafficLoading(true);
@@ -527,10 +552,25 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
           </div>
         </div>
 
-        {/* League Countdown Timer */}
-        <div className="bg-white/20 border-2 border-white/30 rounded-2xl px-4 py-2.5 flex items-center gap-2 text-xs font-black">
-          <Clock className="w-4 h-4 text-[#FFC800]" />
-          <span>۲ روز و ۱۴ ساعت مانده</span>
+        {/* Right side controls: Report Modal and Countdown */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {onOpenReportModal && (
+            <button
+              onClick={() => {
+                playDuoSound('click');
+                onOpenReportModal();
+              }}
+              className="bg-white/20 hover:bg-white/30 text-white border-2 border-white/40 px-3.5 py-2 rounded-2xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+            >
+              <FileText className="w-4 h-4 text-[#FFC800]" />
+              <span>کارنامه رسمی (PDF)</span>
+            </button>
+          )}
+
+          <div className="bg-white/20 border-2 border-white/30 rounded-2xl px-3.5 py-2 flex items-center gap-2 text-xs font-black">
+            <Clock className="w-4 h-4 text-[#FFC800]" />
+            <span>{countdownDays} روز مانده به بازنشانی</span>
+          </div>
         </div>
       </div>
 
@@ -541,7 +581,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
         <div className="flex items-center justify-between pb-4 border-b-2 border-slate-100">
           <div className="flex items-center gap-2 font-black text-slate-800">
             <Crown className="w-5 h-5 text-[#FFC800]" />
-            <h2 className="text-base font-black">جدول زنده رقابت‌های لیگ</h2>
+            <h2 className="text-base font-black">جدول زنده رقابت‌های لیگ (هماهنگ با سرور)</h2>
           </div>
           <span className="text-xs font-black text-[#58CC02]">
             ▲ شما در منطقه صعود به تالار نخبگان هستید
@@ -550,12 +590,13 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
 
         {/* The Players List */}
         <div className="flex flex-col gap-2 my-4">
-          {leaderboardUsers.map((user) => {
+          {(liveLeaderboard.length > 0 ? liveLeaderboard : leaderboardUsers).map((user) => {
+            const isUserItem = user.isCurrentUser || user.isUser;
             return (
               <div
                 key={user.rank}
                 className={`flex items-center justify-between p-3.5 rounded-2xl border-2 transition-all ${
-                  user.isUser
+                  isUserItem
                     ? 'bg-[#E5F6FD] border-[#1CB0F6] border-b-4 text-[#1899D6] scale-[1.01] shadow-xs'
                     : user.rank === 1
                     ? 'bg-amber-50/70 border-amber-200 text-amber-950'

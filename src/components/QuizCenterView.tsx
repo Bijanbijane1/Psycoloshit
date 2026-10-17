@@ -589,24 +589,24 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
             <span className="text-xs font-black text-slate-500 sm:hidden">خروج</span>
           </button>
 
-          {/* Duolingo Progress Capsule */}
-          <div className="flex-1 h-4 bg-slate-200 rounded-full overflow-hidden p-0.5 border border-slate-300">
+          {/* Academic Progress Capsule */}
+          <div className="flex-1 h-3.5 bg-slate-200/80 rounded-full overflow-hidden p-0.5 border border-slate-300/80">
             <div
-              className="h-full bg-[#58CC02] rounded-full transition-all duration-300 relative"
+              className="h-full bg-gradient-to-r from-indigo-600 via-indigo-500 to-blue-600 rounded-full transition-all duration-300 relative shadow-2xs"
               style={{ width: `${Math.max(6, progressPercent)}%` }}
             >
-              <div className="absolute top-0.5 right-1 left-1 h-1 bg-white/40 rounded-full" />
+              <div className="absolute top-0.5 right-1 left-1 h-0.5 bg-white/40 rounded-full" />
             </div>
           </div>
 
           {/* Hearts counter */}
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border-2 border-slate-200 bg-white shadow-2xs">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200/90 bg-white/90 shadow-2xs">
             <Heart
-              className={`w-5 h-5 text-[#FF4B4B] fill-[#FF4B4B] ${
+              className={`w-5 h-5 text-rose-500 fill-rose-500 ${
                 heartsCount <= 1 ? 'animate-bounce' : ''
               }`}
             />
-            <span className="text-sm font-black text-[#FF4B4B]">{heartsCount}</span>
+            <span className="text-sm font-black text-rose-600">{heartsCount}</span>
           </div>
         </div>
 
@@ -629,8 +629,8 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
               }}
               className={`px-3 py-1.5 rounded-xl text-xs font-black whitespace-nowrap transition-all cursor-pointer ${
                 filterType === mode.id
-                  ? 'bg-[#E5F6FD] text-[#1CB0F6] border-2 border-[#1CB0F6] border-b-4'
-                  : 'text-slate-500 hover:bg-slate-100 border-2 border-transparent'
+                  ? 'bg-indigo-50 text-indigo-700 border-2 border-indigo-600 border-b-4'
+                  : 'text-slate-600 hover:bg-white/80 border-2 border-transparent'
               }`}
             >
               {mode.label}
@@ -889,19 +889,19 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
                     }}
                     className={`w-full p-4 rounded-2xl border-2 font-black text-right flex items-center justify-between transition-all cursor-pointer select-none ${
                       isThisCorrect
-                        ? 'bg-[#D7FFB8] border-2 border-b-4 border-[#58CC02] text-[#2E7500]'
+                        ? 'bg-emerald-50 border-2 border-b-4 border-emerald-500 text-emerald-950 shadow-sm'
                         : isThisWrong
-                        ? 'bg-[#FFDFE0] border-2 border-b-4 border-[#FF4B4B] text-[#EA2B2B]'
+                        ? 'bg-rose-50 border-2 border-b-4 border-rose-500 text-rose-950'
                         : isSelected
-                        ? 'bg-[#DDF4FF] border-2 border-b-4 border-[#1CB0F6] text-[#1899D6] translate-y-[-2px]'
-                        : 'bg-white border-slate-200 border-b-4 hover:bg-slate-50 text-slate-700'
+                        ? 'bg-indigo-50 border-2 border-b-4 border-indigo-600 text-indigo-950 translate-y-[-2px] shadow-sm'
+                        : 'bg-white/90 backdrop-blur-md border-slate-200 border-b-4 hover:bg-white text-slate-800 hover:border-slate-300'
                     }`}
                   >
                     <div className="flex items-center gap-3">
                       <span
                         className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-black border ${
                           isSelected
-                            ? 'bg-[#1CB0F6] text-white border-[#1CB0F6]'
+                            ? 'bg-indigo-600 text-white border-indigo-700'
                             : 'bg-slate-100 text-slate-600 border-slate-300'
                         }`}
                       >
@@ -911,9 +911,9 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
                     </div>
 
                     {isThisCorrect && (
-                      <Check className="w-5 h-5 text-[#58CC02] stroke-[3]" />
+                      <Check className="w-5 h-5 text-emerald-600 stroke-[3]" />
                     )}
-                    {isThisWrong && <X className="w-5 h-5 text-[#FF4B4B] stroke-[3]" />}
+                    {isThisWrong && <X className="w-5 h-5 text-rose-500 stroke-[3]" />}
                   </button>
                 );
               })}

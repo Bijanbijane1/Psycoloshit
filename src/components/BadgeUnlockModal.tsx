@@ -66,12 +66,13 @@ export const BadgeUnlockModal: React.FC<BadgeUnlockModalProps> = ({
   if (!badge) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs select-none animate-fadeIn">
-      <div className="relative w-full max-w-md bg-white rounded-3xl border-2 border-b-6 border-[#58CC02] p-6 sm:p-8 text-center shadow-2xl flex flex-col items-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 pb-safe bg-slate-900/70 backdrop-blur-xs select-none animate-fadeIn">
+      <div className="relative w-full max-w-md bg-white rounded-2xl sm:rounded-3xl border-2 border-b-6 border-[#58CC02] p-5 sm:p-8 text-center shadow-2xl flex flex-col items-center max-h-[92dvh] overflow-y-auto overscroll-contain touch-scroll pb-safe">
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-4 left-4 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors"
+          className="absolute top-3 left-3 sm:top-4 sm:left-4 p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors min-w-[38px] min-h-[38px] flex items-center justify-center cursor-pointer"
+          title="بستن"
         >
           <X className="w-5 h-5" />
         </button>

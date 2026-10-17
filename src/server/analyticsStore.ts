@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const DATA_DIR = path.resolve(__dirname, 'data');
+const DATA_DIR = path.resolve(process.cwd(), 'data');
 const DATA_FILE = path.resolve(DATA_DIR, 'site_analytics.json');
 
 export interface SessionInfo {

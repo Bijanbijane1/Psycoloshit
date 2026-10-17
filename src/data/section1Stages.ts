@@ -1,5 +1,5 @@
-import { DuolingoStage, Question } from '../types/psychology';
-import { generateStageQuestions } from './stageQuestionsBuilder';
+import type { DuolingoStage, Question } from '../types/psychology.ts';
+import { generateStageQuestions } from './stageQuestionsBuilder.ts';
 
 // Detailed definitions of topics for the 100 stages of Section 1
 interface StageBlueprint {

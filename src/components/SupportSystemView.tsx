@@ -80,43 +80,103 @@ export const SupportSystemView: React.FC<SupportSystemViewProps> = ({
     setInputQuestion('');
     setIsAiReplying(true);
 
+    const mentorMsgId = `msg-${Date.now() + 1}`;
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: mentorMsgId,
+        sender: 'mentor',
+        text: 'در حال نگارش پاسخ تخصصی...',
+        time: 'هم‌اکنون',
+      },
+    ]);
+
     try {
-      const res = await fetch('/api/ai/ask-mentor', {
+      const res = await fetch('/api/ai/mentor/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           question,
           chapterContext: selectedChapterTitle || 'کلیات روان‌شناسی آکادمیک',
+          chapterTitle: selectedChapterTitle || 'کلیات روان‌شناسی',
         }),
       });
 
-      const data = await res.json().catch(() => ({}));
-      const mentorReplyText =
-        data.reply ||
-        data.fallback ||
-        data.error ||
-        'پاسخ علمی ثبت شد. برای درک عمیق‌تر پیشنهاد می‌کنیم بخش مربوطه در کتابچه آفلاین را مرور کنید.';
+      if (!res.ok || !res.body) {
+        throw new Error('Streaming failed');
+      }
 
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          id: `msg-${Date.now() + 1}`,
-          sender: 'mentor',
-          text: mentorReplyText,
-          time: 'هم‌اکنون',
-        },
-      ]);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulated = '';
+      let isFirstChunk = true;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.replace('data: ', '').trim();
+            if (dataStr === '[DONE]') break;
+
+            try {
+              const parsed = JSON.parse(dataStr);
+              if (parsed.text) {
+                if (isFirstChunk) {
+                  accumulated = parsed.text;
+                  isFirstChunk = false;
+                } else {
+                  accumulated += parsed.text;
+                }
+
+                setChatMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.id === mentorMsgId ? { ...msg, text: accumulated } : msg
+                  )
+                );
+              }
+            } catch {}
+          }
+        }
+      }
+
       playDuoSound('correct');
     } catch {
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          id: `msg-${Date.now() + 1}`,
-          sender: 'mentor',
-          text: 'دوست خوبم، ارتباط با سرویس آنلاین موقتاً قطع شد، اما طبق اصول روان‌شناسی شناختی، سازمان‌دهی مجدد اطلاعات و بازیابی فعال بهترین راه یادگیری است. مجدداً سوال خود را بپرسید.',
-          time: 'هم‌اکنون',
-        },
-      ]);
+      // Fallback to standard request
+      try {
+        const res = await fetch('/api/ai/mentor', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            question,
+            chapterTitle: selectedChapterTitle || 'کلیات روان‌شناسی آکادمیک',
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        const replyText =
+          data.reply ||
+          'پاسخ علمی ثبت شد. برای درک عمیق‌تر پیشنهاد می‌کنیم بخش مربوطه در کتابچه آفلاین را مرور کنید.';
+
+        setChatMessages((prev) =>
+          prev.map((msg) => (msg.id === mentorMsgId ? { ...msg, text: replyText } : msg))
+        );
+        playDuoSound('correct');
+      } catch {
+        setChatMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === mentorMsgId
+              ? {
+                  ...msg,
+                  text: 'دوست خوبم، ارتباط با سرویس آنلاین موقتاً قطع شد، اما طبق اصول روان‌شناسی شناختی، سازمان‌دهی مجدد اطلاعات و بازیابی فعال بهترین راه یادگیری است. مجدداً سوال خود را بپرسید.',
+                }
+              : msg
+          )
+        );
+      }
     } finally {
       setIsAiReplying(false);
     }

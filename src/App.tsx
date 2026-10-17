@@ -3,7 +3,7 @@ import { psychologySections } from './data/psychologyCurriculum';
 import { Chapter, UserProgress, SupportTicket, DifficultyLevel, StageCompletionRecord } from './types/psychology';
 import { BadgeDefinition } from './types/badges';
 import { BADGE_DEFINITIONS, getAllBadgeProgress, findNewlyUnlockedBadges } from './data/badgeDefinitions';
-import { loadUserProgress, saveUserProgress, loadSupportTickets, saveSupportTickets } from './utils/storage';
+import { loadUserProgress, saveUserProgress, loadSupportTickets, saveSupportTickets, getDefaultUserProgress } from './utils/storage';
 import { Navbar } from './components/Navbar';
 import { DashboardView } from './components/DashboardView';
 import { BookReaderView } from './components/BookReaderView';
@@ -19,16 +19,22 @@ import { SourceCodeModal } from './components/SourceCodeModal';
 import { StageExecutionProvider } from './context/StageExecutionContext';
 import { PomodoroTimerModal } from './components/PomodoroTimerModal';
 import { SiteTrafficAnalyticsModal } from './components/SiteTrafficAnalyticsModal';
+import { ReportExportModal } from './components/ReportExportModal';
 import { trackSiteEvent, sendHeartbeatPing } from './utils/siteTracker';
+import { syncProgressToCloud, submitScoreToLeaderboard } from './utils/cloudSync';
 import { usePWAInstall } from './utils/usePWAInstall';
 import { WifiOff } from 'lucide-react';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { GoogleSignInModal } from './components/GoogleSignInModal';
+import { UserAccountModal } from './components/UserAccountModal';
+import { GuestMergeModal } from './components/GuestMergeModal';
 
-export default function App() {
+function AppContent() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'book' | 'quiz' | 'analytics' | 'badges' | 'support' | 'notes'>('dashboard');
   const [currentChapter, setCurrentChapter] = useState<Chapter>(psychologySections[0].chapters[0]);
   const [quizTargetChapter, setQuizTargetChapter] = useState<Chapter | null>(null);
 
-  const [progress, setProgress] = useState<UserProgress>(loadUserProgress);
+  const [progress, setProgress] = useState<UserProgress>(() => loadUserProgress());
   const [tickets, setTickets] = useState<SupportTicket[]>(loadSupportTickets);
 
   const [newlyUnlockedBadge, setNewlyUnlockedBadge] = useState<BadgeDefinition | null>(null);
@@ -38,9 +44,55 @@ export default function App() {
   const [isSourceCodeOpen, setIsSourceCodeOpen] = useState<boolean>(false);
   const [isPomodoroOpen, setIsPomodoroOpen] = useState<boolean>(false);
   const [isTrafficModalOpen, setIsTrafficModalOpen] = useState<boolean>(false);
+  const [isReportModalOpen, setIsReportModalOpen] = useState<boolean>(false);
   const [onlineCount, setOnlineCount] = useState<number>(1);
-
   const { isOffline } = usePWAInstall();
+  const { currentUser, isLoading: isAuthLoading, isGoogleSignInModalOpen, setIsGoogleSignInModalOpen } = useAuth();
+  const lastLoadedUserIdRef = useRef<string | null>(null);
+
+  // Sync authenticated Google user data into local study progress
+  useEffect(() => {
+    if (currentUser) {
+      const isSwitchingUser = lastLoadedUserIdRef.current !== currentUser.userId;
+      lastLoadedUserIdRef.current = currentUser.userId;
+
+      setProgress((prev) => {
+        const base = isSwitchingUser ? loadUserProgress(currentUser.userId) : prev;
+        const mergedChapters = Array.from(
+          new Set([...(base.completedChapters || []), ...(currentUser.completedChapters || [])])
+        );
+        const mergedBookmarks = Array.from(
+          new Set([...(base.bookmarkedChapters || []), ...(currentUser.bookmarkedChapters || [])])
+        );
+        const mergedStages = {
+          ...(base.completedStages || {}),
+          ...((currentUser.completedStages as Record<string, StageCompletionRecord>) || {}),
+        };
+        const mergedBadges = Array.from(
+          new Set([...(base.unlockedBadgeIds || []), ...(currentUser.unlockedBadgeIds || [])])
+        );
+        return {
+          ...base,
+          completedChapters: mergedChapters,
+          bookmarkedChapters: mergedBookmarks,
+          completedStages: mergedStages,
+          unlockedBadgeIds: mergedBadges,
+          streakDays: Math.max(base.streakDays || 1, currentUser.streakDays || 1),
+          totalStudyMinutes: Math.max(base.totalStudyMinutes || 0, currentUser.totalStudyMinutes || 0),
+        };
+      });
+    }
+  }, [currentUser]);
+
+  // Reset local progress when user logs out
+  useEffect(() => {
+    const handleLoggedOut = () => {
+      lastLoadedUserIdRef.current = null;
+      setProgress(getDefaultUserProgress());
+    };
+    window.addEventListener('psychomaster:user-logged-out', handleLoggedOut);
+    return () => window.removeEventListener('psychomaster:user-logged-out', handleLoggedOut);
+  }, []);
 
   // Track unlocked badges
   const evaluatedBadges = useMemo(() => {
@@ -76,10 +128,13 @@ export default function App() {
     return prevUnlockedIdsRef.current;
   };
 
-  // Sync progress to localStorage
+  // Sync progress to localStorage & Cloud (wait until initial auth session check finishes)
   useEffect(() => {
-    saveUserProgress(progress);
-  }, [progress]);
+    saveUserProgress(progress, currentUser?.userId);
+    if (!isAuthLoading) {
+      syncProgressToCloud(progress);
+    }
+  }, [progress, isAuthLoading, currentUser?.userId]);
 
   // Sync tickets to localStorage
   useEffect(() => {
@@ -239,6 +294,19 @@ export default function App() {
       const updatedBadgeIds = checkBadgeUnlocks(updatedProg);
       return { ...updatedProg, unlockedBadgeIds: updatedBadgeIds };
     });
+
+    if (isCorrect) {
+      submitScoreToLeaderboard(
+        {
+          rewardType: 'quiz_answer',
+          chapterId,
+          questionId,
+          userAnswer,
+          isCorrect: true,
+        },
+        progress.streakDays
+      );
+    }
   };
 
   const handleCompleteStage = (record: StageCompletionRecord) => {
@@ -271,6 +339,18 @@ export default function App() {
       const updatedBadgeIds = checkBadgeUnlocks(updatedProg);
       return { ...updatedProg, unlockedBadgeIds: updatedBadgeIds };
     });
+
+    submitScoreToLeaderboard(
+      {
+        rewardType: 'stage_completion',
+        stageNumber: record.stageNumber,
+        stars: record.stars,
+        score: record.score,
+        totalQuestions: record.totalQuestions,
+        xpEarned: record.xpEarned,
+      },
+      progress.streakDays
+    );
   };
 
   const handleAddTicket = (newTicket: SupportTicket) => {
@@ -308,7 +388,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#FFFFFF] text-slate-900 font-sans flex flex-col selection:bg-[#D7FFB8] selection:text-[#2E7500]">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100/60 to-indigo-50/30 text-slate-900 font-sans flex flex-col selection:bg-indigo-100 selection:text-indigo-900">
       {/* Offline Status Notice Banner */}
       {isOffline && (
         <div className="bg-amber-500 text-white text-xs font-black py-1.5 px-4 text-center flex items-center justify-center gap-2 shadow-xs">
@@ -332,7 +412,7 @@ export default function App() {
       />
 
       {/* Main Body View */}
-      <div className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 pt-3 sm:pt-6 pb-24 lg:pb-8">
+      <div className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-5 lg:px-8 pt-3 sm:pt-5 lg:pt-6 pb-24 lg:pb-10">
         {activeTab === 'dashboard' && (
           <StageExecutionProvider
             progress={progress}
@@ -402,6 +482,7 @@ export default function App() {
             progress={progress}
             onSelectChapter={handleSelectChapter}
             onOpenBadges={() => setActiveTab('badges')}
+            onOpenReportModal={() => setIsReportModalOpen(true)}
           />
         )}
 
@@ -481,6 +562,30 @@ export default function App() {
         isOpen={isTrafficModalOpen}
         onClose={() => setIsTrafficModalOpen(false)}
       />
+
+      {/* Official Academic Transcript & Report Export Modal */}
+      <ReportExportModal
+        isOpen={isReportModalOpen}
+        onClose={() => setIsReportModalOpen(false)}
+        progress={progress}
+        sections={psychologySections}
+      />
+
+      {/* Production Google Sign-In & User Account Modals (Phase 5A) */}
+      <GoogleSignInModal
+        isOpen={isGoogleSignInModalOpen}
+        onClose={() => setIsGoogleSignInModalOpen(false)}
+      />
+      <UserAccountModal />
+      <GuestMergeModal />
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }

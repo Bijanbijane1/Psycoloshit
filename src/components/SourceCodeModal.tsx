@@ -360,31 +360,32 @@ export const SourceCodeModal: React.FC<SourceCodeModalProps> = ({
   const lineCount = currentFile.content.split('\n').length;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/45 backdrop-blur-2xs flex items-center justify-center p-3 sm:p-5 animate-fadeIn select-none">
-      <div className="bg-white border-2 border-b-6 border-slate-200 rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-scaleUp">
+    <div className="fixed inset-0 z-50 bg-black/45 backdrop-blur-2xs flex items-center justify-center p-2 sm:p-5 pb-safe animate-fadeIn select-none">
+      <div className="bg-white border-2 border-b-6 border-slate-200 rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-4xl max-h-[94dvh] flex flex-col overflow-hidden animate-scaleUp">
         {/* Header */}
-        <div className="p-4 sm:p-5 border-b-2 border-slate-100 flex items-center justify-between bg-slate-50/50">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-[#1CB0F6]/10 border border-[#1CB0F6]/20 flex items-center justify-center text-[#1CB0F6]">
+        <div className="p-3.5 sm:p-5 border-b-2 border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-[#1CB0F6]/10 border border-[#1CB0F6]/20 flex items-center justify-center text-[#1CB0F6] shrink-0">
               <Code2 className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-base font-black text-slate-800">
+                <h3 className="text-sm sm:text-base font-black text-slate-800">
                   سورس‌کد و ساختار فایل‌های پروژه
                 </h3>
                 <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-[#E5F6FD] text-[#1CB0F6]">
                   Source Code Viewer
                 </span>
               </div>
-              <p className="text-xs font-bold text-slate-400">
+              <p className="text-[11px] sm:text-xs font-bold text-slate-400">
                 مشاهده، بازرسی، کپی و دانلود سورس‌کدهای اصلی سامانه
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-xl cursor-pointer transition-colors"
+            className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-xl cursor-pointer transition-colors min-w-[38px] min-h-[38px] flex items-center justify-center shrink-0"
+            title="بستن"
           >
             <X className="w-5 h-5" />
           </button>
