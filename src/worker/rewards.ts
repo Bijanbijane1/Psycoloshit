@@ -29,6 +29,7 @@ export const ALLOWED_REWARD_REASONS = new Set<string>([
   'stage_passed',
   'quiz_answer',
   'quiz_completion',
+  'exam_completion',
   'daily_streak',
   'badge_unlock',
 ]);
@@ -192,6 +193,42 @@ export interface RejectedRewardResult {
   error: string;
 }
 
+export const MIN_STAGE_PASSING_RATIO = 0.6;
+
+/**
+ * Helper to construct a deterministic map of canonical correct answers for a stage's questions.
+ */
+export function buildCanonicalStageAnswers(stageNumber: number): Record<string, unknown> | null {
+  const stage = getAuthoritativeStage(stageNumber);
+  if (!stage) return null;
+
+  const answers: Record<string, unknown> = {};
+  for (const q of stage.questions) {
+    if (q.type === 'multiple_choice' || q.type === 'case_study') {
+      answers[q.id] = q.correctAnswer;
+    } else if (q.type === 'true_false') {
+      const expected =
+        typeof q.isTrue === 'boolean'
+          ? q.isTrue
+          : typeof q.correctAnswer === 'boolean'
+          ? q.correctAnswer
+          : q.correctAnswer === 0 || q.correctAnswer === '0'
+          ? true
+          : q.correctAnswer === 1 || q.correctAnswer === '1'
+          ? false
+          : String(q.correctAnswer).toLowerCase() === 'true';
+      answers[q.id] = expected;
+    } else if (q.type === 'fill_blank') {
+      answers[q.id] = String(q.correctAnswer);
+    } else if (q.type === 'sentence_order') {
+      answers[q.id] = String(q.correctAnswer || q.correctSentence || '');
+    } else if (q.type === 'match_pairs') {
+      answers[q.id] = (q.matchPairs || []).map((p) => p.id);
+    }
+  }
+  return answers;
+}
+
 export function verifyRewardSubmission(
   body: Record<string, unknown>,
   context: {
@@ -257,32 +294,82 @@ export function verifyRewardSubmission(
       };
     }
 
-    const totalQuestions =
-      body.totalQuestions !== undefined ? Number(body.totalQuestions) : stage.questions.length;
-    if (!Number.isInteger(totalQuestions) || totalQuestions < 1 || totalQuestions > 50) {
+    // Extract and validate stageAnswers against authoritative stage questions
+    const rawAnswers = body.stageAnswers ?? body.answers;
+    if (
+      !rawAnswers ||
+      typeof rawAnswers !== 'object' ||
+      Array.isArray(rawAnswers)
+    ) {
       return {
         ok: false,
         status: 400,
-        error: 'Invalid totalQuestions for stage completion',
+        error:
+          'Stage completion verification failed: stageAnswers object mapping every stage questionId to the submitted answer is required',
       };
     }
 
-    const score = body.score !== undefined ? Number(body.score) : totalQuestions;
-    if (!Number.isInteger(score) || score < 1 || score > totalQuestions) {
+    const answerMap = rawAnswers as Record<string, unknown>;
+    const authoritativeQuestions = stage.questions;
+    const authoritativeTotalQuestions = authoritativeQuestions.length;
+
+    let verifiedScore = 0;
+    for (const q of authoritativeQuestions) {
+      if (!(q.id in answerMap) || answerMap[q.id] === undefined || answerMap[q.id] === null) {
+        return {
+          ok: false,
+          status: 400,
+          error: `Stage completion verification failed: missing submitted answer for stage question '${q.id}'`,
+        };
+      }
+      if (evaluateCurriculumQuestionAnswer(q, answerMap[q.id])) {
+        verifiedScore += 1;
+      }
+    }
+
+    const minPassingScore = Math.ceil(authoritativeTotalQuestions * MIN_STAGE_PASSING_RATIO);
+    if (verifiedScore < minPassingScore) {
       return {
         ok: false,
         status: 400,
-        error: 'Invalid score for stage completion: score must be between 1 and totalQuestions',
+        error: `Stage completion verification failed: verified score ${verifiedScore}/${authoritativeTotalQuestions} is below the minimum passing threshold (${minPassingScore}/${authoritativeTotalQuestions})`,
       };
     }
 
-    const stars = body.stars !== undefined ? Number(body.stars) : 3;
-    if (!Number.isInteger(stars) || stars < 1 || stars > 3) {
-      return {
-        ok: false,
-        status: 400,
-        error: 'Invalid stars for stage completion: must be 1, 2, or 3',
-      };
+    const verifiedMistakes = authoritativeTotalQuestions - verifiedScore;
+    const verifiedStars = verifiedMistakes === 0 ? 3 : verifiedMistakes <= 2 ? 2 : 1;
+
+    if (body.totalQuestions !== undefined) {
+      const clientTotal = Number(body.totalQuestions);
+      if (!Number.isInteger(clientTotal) || clientTotal !== authoritativeTotalQuestions) {
+        return {
+          ok: false,
+          status: 400,
+          error: `Invalid totalQuestions: stage ${stageNumber} has ${authoritativeTotalQuestions} questions, not ${String(body.totalQuestions)}`,
+        };
+      }
+    }
+
+    if (body.score !== undefined) {
+      const clientScore = Number(body.score);
+      if (!Number.isInteger(clientScore) || clientScore < 0 || clientScore > authoritativeTotalQuestions) {
+        return {
+          ok: false,
+          status: 400,
+          error: 'Invalid score for stage completion',
+        };
+      }
+    }
+
+    if (body.stars !== undefined) {
+      const clientStars = Number(body.stars);
+      if (!Number.isInteger(clientStars) || clientStars < 1 || clientStars > 3) {
+        return {
+          ok: false,
+          status: 400,
+          error: 'Invalid stars for stage completion: must be 1, 2, or 3',
+        };
+      }
     }
 
     const canonicalAmount = stage.xpReward;
@@ -308,10 +395,12 @@ export function verifyRewardSubmission(
     const stageRecord: StageCompletionRecord = {
       stageNumber,
       completedAt: new Date().toISOString(),
-      stars,
-      score,
-      totalQuestions,
+      stars: verifiedStars,
+      score: verifiedScore,
+      totalQuestions: authoritativeTotalQuestions,
       xpEarned: canonicalAmount,
+      verified: true,
+      source: 'online-verified',
     };
 
     return {
@@ -412,17 +501,31 @@ export function verifyRewardSubmission(
 /**
  * Sanitize and merge completedStages so client sync / guest merge can never inject
  * out-of-range stage numbers, non-sequential stage unlocks, or inflated xpEarned values.
+ *
+ * Also enforces Phase 6G Task 2 separation between:
+ * - `online-verified` stages (backed by `xp_ledger` or `awardXp`, whose server-verified
+ *   `score` and `stars` cannot be overwritten by unverified client `/api/user/sync` payloads).
+ * - `offline-local` stages (recorded locally for PWA continuity, marked `verified: false`,
+ *   `source: 'offline-local'`, and never treated as verified online rewards).
  */
 export function sanitizeCompletedStages(
   existingStages: Record<string, any> | undefined,
-  incomingStages: Record<string, any> | undefined
+  incomingStages: Record<string, any> | undefined,
+  options?: {
+    verifiedStageNumbers?: Set<number>;
+    markIncomingVerified?: boolean;
+  }
 ): Record<string, StageCompletionRecord> {
+  const existingMap: Record<number, any> = {};
   const combinedRaw: Record<number, any> = {};
+  const verifiedSet = options?.verifiedStageNumbers;
+  const markIncomingVerified = Boolean(options?.markIncomingVerified);
 
   if (existingStages && typeof existingStages === 'object' && !Array.isArray(existingStages)) {
     for (const [key, val] of Object.entries(existingStages)) {
       const num = Number(key);
       if (Number.isInteger(num) && num >= 1 && num <= 100 && val && typeof val === 'object') {
+        existingMap[num] = val;
         combinedRaw[num] = val;
       }
     }
@@ -432,7 +535,29 @@ export function sanitizeCompletedStages(
     for (const [key, val] of Object.entries(incomingStages)) {
       const num = Number(key);
       if (Number.isInteger(num) && num >= 1 && num <= 100 && val && typeof val === 'object') {
-        combinedRaw[num] = { ...(combinedRaw[num] || {}), ...val };
+        const prev = existingMap[num];
+        const prevIsVerified = Boolean(
+          prev && (prev.verified === true || prev.source === 'online-verified' || verifiedSet?.has(num))
+        );
+        if (prevIsVerified && !markIncomingVerified) {
+          // Preserve server-verified score, stars, and timestamps against unverified client sync overwrites
+          combinedRaw[num] = {
+            ...val,
+            ...prev,
+            verified: true,
+            source: 'online-verified',
+          };
+        } else {
+          combinedRaw[num] = {
+            ...(prev || {}),
+            ...val,
+            verified: markIncomingVerified ? true : Boolean(verifiedSet?.has(num)),
+            source:
+              markIncomingVerified || verifiedSet?.has(num)
+                ? 'online-verified'
+                : 'offline-local',
+          };
+        }
       }
     }
   }
@@ -460,6 +585,10 @@ export function sanitizeCompletedStages(
         ? rec.completedAt.trim()
         : new Date().toISOString();
 
+    const isOnlineVerified = Boolean(
+      verifiedSet ? verifiedSet.has(stageNum) : (rec.verified === true || rec.source === 'online-verified')
+    );
+
     sanitized[String(stageNum)] = {
       stageNumber: stageNum,
       completedAt,
@@ -467,6 +596,8 @@ export function sanitizeCompletedStages(
       score,
       totalQuestions,
       xpEarned: stage.xpReward,
+      verified: isOnlineVerified,
+      source: isOnlineVerified ? 'online-verified' : 'offline-local',
     };
   }
 

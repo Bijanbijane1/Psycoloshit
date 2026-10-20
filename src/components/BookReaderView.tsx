@@ -14,20 +14,19 @@ import {
   VolumeX,
   Check,
   Zap,
-  HelpCircle,
   Menu,
   X,
   Star,
-  ChevronDown,
   GraduationCap,
   Quote,
   Copy,
-  ExternalLink,
   Timer,
+  Layers,
+  MessageSquare,
 } from 'lucide-react';
-import { DuoMascot } from './DuoMascot';
 import { playDuoSound } from '../utils/duoAudio';
 import { getAcademicSourcesForChapter } from '../data/academicSources';
+import { toPersianDigits } from '../utils/persianDigits';
 import confetti from 'canvas-confetti';
 
 interface BookReaderViewProps {
@@ -147,10 +146,10 @@ export const BookReaderView: React.FC<BookReaderViewProps> = ({
     onMarkCompleted(currentChapter.id);
     playDuoSound('complete');
     confetti({
-      particleCount: 70,
+      particleCount: 65,
       spread: 75,
       origin: { y: 0.6 },
-      colors: ['#58CC02', '#FFC800', '#1CB0F6'],
+      colors: ['#5B46E8', '#16A394', '#F59E0B'],
     });
   };
 
@@ -184,7 +183,7 @@ export const BookReaderView: React.FC<BookReaderViewProps> = ({
       {isSidebarOpen && (
         <div
           onClick={() => setIsSidebarOpen(false)}
-          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-xs lg:hidden transition-opacity"
+          className="fixed inset-0 z-40 bg-[#24243B]/45 backdrop-blur-xs lg:hidden transition-opacity"
         />
       )}
 
@@ -192,545 +191,608 @@ export const BookReaderView: React.FC<BookReaderViewProps> = ({
       {/* 1. TABLE OF CONTENTS DRAWER / SIDEBAR                   */}
       {/* ======================================================== */}
       <aside
-        className={`fixed inset-y-0 right-0 z-50 w-72 max-w-[85vw] bg-white border-l-2 border-slate-200 p-4 transition-transform lg:translate-x-0 lg:static lg:w-72 lg:rounded-2xl lg:border-2 lg:border-b-4 lg:shadow-xs ${
+        className={`fixed inset-y-0 right-0 z-50 w-72 max-w-[85vw] bg-white border-l border-[#E5E1EB] p-4 transition-transform lg:translate-x-0 lg:static lg:w-72 lg:rounded-2xl lg:border lg:border-[#E5E1EB] lg:self-start ${
           isSidebarOpen ? 'translate-x-0 shadow-2xl' : 'translate-x-full lg:translate-x-0'
         }`}
       >
-        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-          <div className="flex items-center gap-2">
-            <BookOpen className="w-5 h-5 text-[#58CC02]" />
-            <h3 className="text-sm font-black text-slate-800">فهرست سرفصل‌های دوره</h3>
+          <div className="flex items-center justify-between pb-3.5 border-b border-[#E5E1EB]">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-[#DDF7F2] text-[#0F766E] flex items-center justify-center">
+                <BookOpen className="w-4 h-4" />
+              </div>
+              <h3 className="text-sm font-black text-[#24243B]">فهرست سرفصل‌های کتاب</h3>
+            </div>
+            <button
+              onClick={() => setIsSidebarOpen(false)}
+              className="lg:hidden p-2 text-[#69697E] hover:text-[#24243B] rounded-xl min-w-[44px] min-h-[44px] flex items-center justify-center cursor-pointer"
+              aria-label="بستن فهرست"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
-          <button
-            onClick={() => setIsSidebarOpen(false)}
-            className="lg:hidden p-1.5 text-slate-400 hover:text-slate-700 rounded-xl min-w-[36px] min-h-[36px] flex items-center justify-center cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
 
-        <div className="mt-4 flex flex-col gap-4 overflow-y-auto max-h-[calc(100vh-140px)] touch-scroll">
-          {sections.map((sec) => (
-            <div key={sec.id} className="flex flex-col gap-1">
-              <span className="text-[11px] font-black text-slate-400 px-2">
-                بخش {sec.id}: {sec.title}
-              </span>
-              <div className="flex flex-col gap-1">
-                {sec.chapters.map((chap) => {
-                  const isCur = chap.id === currentChapter.id;
-                  const isDone = progress.completedChapters.includes(chap.id);
+          <div className="mt-4 flex flex-col gap-4 overflow-y-auto max-h-[calc(100vh-160px)] touch-scroll pr-0.5">
+            {sections.map((sec) => (
+              <div key={sec.id} className="flex flex-col gap-1.5">
+                <span className="text-[11px] font-extrabold text-[#69697E] px-2">
+                  بخش {toPersianDigits(sec.id)}: {sec.title}
+                </span>
+                <div className="flex flex-col gap-1">
+                  {sec.chapters.map((chap) => {
+                    const isCur = chap.id === currentChapter.id;
+                    const isDone = progress.completedChapters.includes(chap.id);
+                    return (
+                      <button
+                        key={chap.id}
+                        onClick={() => {
+                          playDuoSound('click');
+                          onSelectChapter(chap);
+                          setIsSidebarOpen(false);
+                        }}
+                        className={`w-full text-right px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-between cursor-pointer min-h-[44px] border ${
+                          isCur
+                            ? 'bg-[#EAE4FF] text-[#5B46E8] border-[#5B46E8]/35 font-extrabold'
+                            : 'bg-transparent border-transparent text-[#24243B] hover:bg-[#F7F5F0]'
+                        }`}
+                      >
+                        <span className="truncate">{chap.title}</span>
+                        {isDone && (
+                          <span className="w-4 h-4 rounded-full bg-[#DDF7F2] text-[#169E6C] flex items-center justify-center shrink-0">
+                            <Check className="w-3 h-3 stroke-[3]" />
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </aside>
+
+        {/* ======================================================== */}
+        {/* 2. MAIN EDITORIAL READING ARENA                          */}
+        {/* ======================================================== */}
+        <main className="flex-1 max-w-3xl xl:max-w-4xl w-full flex flex-col gap-5">
+          {/* Editorial Chapter Header Banner */}
+          <div className="bg-[#1F1B44] border border-[#352E6E] rounded-2xl sm:rounded-3xl p-5 sm:p-7 text-white relative overflow-hidden">
+            {/* Subtle Psychology Geometry Accent */}
+            <svg
+              viewBox="0 0 220 140"
+              className="absolute left-0 top-0 h-full w-48 opacity-15 pointer-events-none"
+              aria-hidden="true"
+            >
+              <circle cx="55" cy="70" r="46" fill="none" stroke="#16A394" strokeWidth="1.5" />
+              <circle cx="95" cy="70" r="34" fill="none" stroke="#EAE4FF" strokeWidth="1.5" strokeDasharray="4 4" />
+              <path d="M20 70 H165" stroke="#F59E0B" strokeWidth="1.2" />
+            </svg>
+
+            <div className="flex items-start justify-between gap-4 relative z-10">
+              <div className="flex items-start gap-3 flex-1 min-w-0">
+                <button
+                  onClick={() => setIsSidebarOpen(true)}
+                  className="lg:hidden p-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white cursor-pointer min-w-[44px] min-h-[44px] flex items-center justify-center shrink-0 border border-white/15 mt-0.5"
+                  title="فهرست سرفصل‌ها"
+                  aria-label="فهرست سرفصل‌ها"
+                >
+                  <Menu className="w-5 h-5" />
+                </button>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[11px] font-extrabold text-[#DDF7F2] bg-[#16A394]/30 border border-[#16A394]/45 px-2.5 py-0.5 rounded-md">
+                      بخش {toPersianDigits(currentSection.id)} · {currentSection.title}
+                    </span>
+                    {isCompleted && (
+                      <span className="text-[11px] font-extrabold text-[#DDF7F2] bg-[#169E6C]/30 border border-[#169E6C]/40 px-2.5 py-0.5 rounded-md flex items-center gap-1">
+                        <Check className="w-3 h-3" />
+                        مطالعه شده
+                      </span>
+                    )}
+                  </div>
+                  <h1 className="text-xl sm:text-2xl font-black mt-2.5 leading-snug text-white">
+                    {currentChapter.title}
+                  </h1>
+                  <p className="text-xs font-medium text-[#EAE4FF]/75 mt-1 truncate dir-ltr text-right">
+                    {currentChapter.englishTitle}
+                  </p>
+                </div>
+              </div>
+
+              {/* Direct Practice Action in Header */}
+              <button
+                onClick={() => {
+                  playDuoSound('click');
+                  onStartQuiz(currentChapter);
+                }}
+                className="hidden sm:inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#16A394] hover:bg-[#12877A] text-white text-xs font-extrabold transition-colors cursor-pointer shrink-0 min-h-[44px]"
+              >
+                <Zap className="w-3.5 h-3.5" />
+                <span>آزمون این فصل</span>
+              </button>
+            </div>
+          </div>
+
+          {/* TTS Notification Banner */}
+          {ttsNotice && (
+            <div className="p-3.5 bg-[#FFF0C8] border border-[#F59E0B]/40 text-[#92400E] rounded-xl text-xs font-bold">
+              {ttsNotice}
+            </div>
+          )}
+
+          {/* Editorial Controls Toolbar */}
+          <div className="bg-white rounded-2xl p-3 flex flex-wrap items-center justify-between gap-3 border border-[#E5E1EB]">
+            {/* Reading Mode Switcher (Academic vs Simplified) */}
+            <div className="flex items-center bg-[#F7F5F0] p-1 rounded-xl border border-[#E5E1EB] w-full sm:w-auto">
+              <button
+                onClick={() => {
+                  playDuoSound('click');
+                  setReadingMode('academic');
+                }}
+                className={`flex-1 sm:flex-initial px-3.5 py-2 rounded-lg text-xs font-extrabold transition-all cursor-pointer min-h-[44px] ${
+                  readingMode === 'academic'
+                    ? 'bg-[#5B46E8] text-white'
+                    : 'text-[#69697E] hover:text-[#24243B]'
+                }`}
+              >
+                متن دانشگاهی و مرجع
+              </button>
+              <button
+                onClick={() => {
+                  playDuoSound('click');
+                  setReadingMode('simplified');
+                }}
+                className={`flex-1 sm:flex-initial px-3.5 py-2 rounded-lg text-xs font-extrabold transition-all cursor-pointer flex items-center justify-center gap-1.5 min-h-[44px] ${
+                  readingMode === 'simplified'
+                    ? 'bg-[#5B46E8] text-white'
+                    : 'text-[#69697E] hover:text-[#24243B]'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>خلاصه آموزشی</span>
+              </button>
+            </div>
+
+            {/* Reader Utilities: Font Size, Audio TTS, Notes, Bookmark, Pin */}
+            <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
+              {/* Font Size Adjuster */}
+              <div className="flex items-center bg-[#F7F5F0] p-1 rounded-xl border border-[#E5E1EB] text-xs font-extrabold">
+                <button
+                  onClick={() => {
+                    playDuoSound('click');
+                    setFontSize('sm');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer min-h-[44px] ${
+                    fontSize === 'sm' ? 'bg-white text-[#24243B] shadow-2xs' : 'text-[#69697E] hover:text-[#24243B]'
+                  }`}
+                  title="اندازه متن کوچک"
+                >
+                  کوچک
+                </button>
+                <button
+                  onClick={() => {
+                    playDuoSound('click');
+                    setFontSize('base');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer min-h-[44px] ${
+                    fontSize === 'base' ? 'bg-white text-[#24243B] shadow-2xs' : 'text-[#69697E] hover:text-[#24243B]'
+                  }`}
+                  title="اندازه متن استاندارد"
+                >
+                  متوسط
+                </button>
+                <button
+                  onClick={() => {
+                    playDuoSound('click');
+                    setFontSize('lg');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer min-h-[44px] ${
+                    fontSize === 'lg' ? 'bg-white text-[#24243B] shadow-2xs' : 'text-[#69697E] hover:text-[#24243B]'
+                  }`}
+                  title="اندازه متن بزرگ"
+                >
+                  بزرگ
+                </button>
+              </div>
+
+              {/* Audio TTS Button */}
+              <button
+                onClick={handleToggleAudioTTS}
+                className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer transition-colors border min-h-[44px] ${
+                  isSpeaking
+                    ? 'bg-[#FFE4E8] text-[#9F1239] border-[#D9485F]/35'
+                    : 'bg-[#F7F5F0] hover:bg-[#EAE4FF]/50 text-[#24243B] border-[#E5E1EB]'
+                }`}
+                title="خوانش صوتی متن"
+              >
+                {isSpeaking ? <VolumeX className="w-4 h-4 text-[#D9485F]" /> : <Volume2 className="w-4 h-4 text-[#5B46E8]" />}
+                <span>{isSpeaking ? 'توقف خوانش' : 'خوانش صوتی'}</span>
+              </button>
+
+              {/* Notebook Toggle */}
+              <button
+                onClick={() => {
+                  playDuoSound('click');
+                  setShowNotesPanel(!showNotesPanel);
+                }}
+                className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer border transition-colors min-h-[44px] ${
+                  showNotesPanel
+                    ? 'bg-[#FFF0C8] text-[#92400E] border-[#F59E0B]/40'
+                    : 'bg-[#F7F5F0] hover:bg-[#EAE4FF]/50 text-[#24243B] border-[#E5E1EB]'
+                }`}
+              >
+                <FileEdit className="w-4 h-4 text-[#D97706]" />
+                <span>یادداشت</span>
+              </button>
+
+              {/* Pomodoro Focus Timer Toggle */}
+              {onOpenPomodoro && (
+                <button
+                  onClick={() => {
+                    playDuoSound('click');
+                    onOpenPomodoro();
+                  }}
+                  className="px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer bg-[#F7F5F0] hover:bg-[#FFF0C8]/60 text-[#24243B] border border-[#E5E1EB] transition-colors min-h-[44px]"
+                  title="تایمر مطالعه پومودورو"
+                >
+                  <Timer className="w-4 h-4 text-[#D97706]" />
+                  <span className="hidden sm:inline">پومودورو</span>
+                </button>
+              )}
+
+              {/* Bookmark */}
+              <button
+                onClick={() => {
+                  playDuoSound('click');
+                  onToggleBookmark(currentChapter.id);
+                }}
+                className={`p-2.5 rounded-xl border transition-colors cursor-pointer min-w-[44px] min-h-[44px] flex items-center justify-center ${
+                  isBookmarked
+                    ? 'bg-[#FFF0C8] border-[#F59E0B]/45 text-[#B45309]'
+                    : 'border-[#E5E1EB] text-[#69697E] hover:bg-[#F7F5F0]'
+                }`}
+                title="نشان‌گذاری فصل"
+                aria-label="نشان‌گذاری فصل"
+              >
+                <Bookmark className="w-4 h-4 fill-current" />
+              </button>
+
+              {/* Pin */}
+              <button
+                onClick={() => {
+                  playDuoSound('click');
+                  onTogglePin(currentChapter.id);
+                }}
+                className={`p-2.5 rounded-xl border transition-colors cursor-pointer min-w-[44px] min-h-[44px] flex items-center justify-center ${
+                  isPinned
+                    ? 'bg-[#DDF7F2] border-[#16A394]/40 text-[#0F766E]'
+                    : 'border-[#E5E1EB] text-[#69697E] hover:bg-[#F7F5F0]'
+                }`}
+                title="سنجاق در داشبورد"
+                aria-label="سنجاق در داشبورد"
+              >
+                <Pin className="w-4 h-4 fill-current" />
+              </button>
+            </div>
+          </div>
+
+          {/* Subtopic Switcher Strip */}
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
+            <button
+              onClick={() => {
+                playDuoSound('click');
+                setActiveSubtopicIndex(null);
+              }}
+              className={`px-3.5 py-2 rounded-xl text-xs font-extrabold whitespace-nowrap transition-colors cursor-pointer border min-h-[44px] ${
+                activeSubtopicIndex === null
+                  ? 'bg-[#24243B] text-white border-[#24243B]'
+                  : 'bg-white text-[#69697E] border-[#E5E1EB] hover:text-[#24243B]'
+              }`}
+            >
+              همه مباحث فصل
+            </button>
+            {currentChapter.subtopics.map((st, idx) => (
+              <button
+                key={idx}
+                onClick={() => {
+                  playDuoSound('click');
+                  setActiveSubtopicIndex(idx);
+                }}
+                className={`px-3.5 py-2 rounded-xl text-xs font-extrabold whitespace-nowrap transition-colors cursor-pointer border min-h-[44px] ${
+                  activeSubtopicIndex === idx
+                    ? 'bg-[#5B46E8] text-white border-[#5B46E8]'
+                    : 'bg-white text-[#69697E] border-[#E5E1EB] hover:text-[#24243B]'
+                }`}
+              >
+                {st}
+              </button>
+            ))}
+          </div>
+
+          {/* Note-taking expandable drawer */}
+          {showNotesPanel && (
+            <div className="bg-[#FFF0C8]/55 border border-[#F59E0B]/35 rounded-2xl p-4 flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-extrabold text-[#92400E] flex items-center gap-1.5">
+                  <FileEdit className="w-4 h-4 text-[#D97706]" />
+                  <span>یادداشت شخصی شما برای این فصل</span>
+                </span>
+                <button
+                  onClick={handleSaveNoteAction}
+                  className="bg-[#D97706] hover:bg-[#B45309] text-white px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1 cursor-pointer transition-colors min-h-[44px]"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{isNoteSaved ? 'ذخیره شد' : 'ذخیره یادداشت'}</span>
+                </button>
+              </div>
+              <textarea
+                value={noteContent}
+                onChange={(e) => setNoteContent(e.target.value)}
+                placeholder="نکات مهم، خلاصه مفاهیم، یا یادآوری‌های خود را اینجا بنویسید..."
+                className="w-full h-24 p-3 bg-white border border-[#F59E0B]/30 rounded-xl text-base lg:text-xs font-medium text-[#24243B] resize-none outline-none focus:border-[#D97706]"
+              />
+            </div>
+          )}
+
+          {/* Main Editorial Article Surface */}
+          <article className="bg-white rounded-2xl sm:rounded-3xl p-5 sm:p-8 lg:p-10 border border-[#E5E1EB] shadow-2xs">
+            {activeSubtopicDetail && (
+              <div className="mb-5 pb-3.5 border-b border-[#E5E1EB] flex items-center justify-between gap-2">
+                <h2 className="text-base sm:text-lg font-black text-[#5B46E8]">
+                  {activeSubtopicDetail.title}
+                </h2>
+                <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-md bg-[#EAE4FF] text-[#5B46E8]">
+                  زیرمبحث تخصصی
+                </span>
+              </div>
+            )}
+
+            <div
+              className={`prose-persian max-w-[68ch] space-y-4 text-[#24243B] ${
+                fontSize === 'sm'
+                  ? 'text-xs sm:text-sm leading-relaxed'
+                  : fontSize === 'lg'
+                  ? 'text-base sm:text-lg leading-loose'
+                  : 'text-sm sm:text-base leading-loose'
+              }`}
+            >
+              {currentDisplayContent.split('\n\n').map((paragraph, pIdx) => (
+                <p key={pIdx}>
+                  {paragraph}
+                </p>
+              ))}
+            </div>
+          </article>
+
+          {/* Key Points (نکات کلیدی برای آزمون و تثبیت مفهوم) */}
+          {currentChapter.keyPoints && currentChapter.keyPoints.length > 0 && (
+            <section className="bg-[#EAE4FF]/45 rounded-2xl sm:rounded-3xl p-5 sm:p-6 border border-[#5B46E8]/20">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-7 h-7 rounded-lg bg-[#5B46E8] text-white flex items-center justify-center">
+                  <Star className="w-4 h-4 fill-current" />
+                </div>
+                <h3 className="text-sm sm:text-base font-black text-[#24243B]">
+                  نکات کلیدی و مفاهیم پرتکرار آزمونی
+                </h3>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {currentChapter.keyPoints.map((point, kIdx) => (
+                  <div
+                    key={kIdx}
+                    className="bg-white border border-[#E5E1EB] rounded-xl p-3.5 flex items-start gap-2.5 text-xs font-bold text-[#24243B]"
+                  >
+                    <span className="w-5 h-5 rounded-md bg-[#EAE4FF] text-[#5B46E8] flex items-center justify-center shrink-0 text-[11px] font-extrabold mt-0.5">
+                      {toPersianDigits(kIdx + 1)}
+                    </span>
+                    <span className="leading-relaxed">{point}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Highlighted Definitions & Concept Cards (فلش‌کارت‌های مفهومی فصل) */}
+          {currentChapter.flashcards && currentChapter.flashcards.length > 0 && (
+            <section className="bg-white rounded-2xl sm:rounded-3xl p-5 sm:p-6 border border-[#E5E1EB]">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-[#DDF7F2] text-[#0F766E] flex items-center justify-center">
+                    <Layers className="w-4 h-4" />
+                  </div>
+                  <h3 className="text-sm sm:text-base font-black text-[#24243B]">
+                    واژگان تخصصی و تعاریف کلیدی فصل
+                  </h3>
+                </div>
+                <span className="text-xs font-medium text-[#69697E]">
+                  برای مشاهده یا پنهان‌کردن تعریف، روی هر کارت کلیک کنید
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {currentChapter.flashcards.map((fc) => {
+                  const isFlipped = revealedFlashcards[fc.id];
                   return (
                     <button
-                      key={chap.id}
+                      type="button"
+                      key={fc.id}
                       onClick={() => {
                         playDuoSound('click');
-                        onSelectChapter(chap);
-                        setIsSidebarOpen(false);
+                        setRevealedFlashcards((prev) => ({
+                          ...prev,
+                          [fc.id]: !prev[fc.id],
+                        }));
                       }}
-                      className={`w-full text-right px-3 py-2.5 rounded-xl text-xs font-black transition-all flex items-center justify-between cursor-pointer min-h-[44px] ${
-                        isCur
-                          ? 'bg-[#E5F6FD] text-[#1CB0F6] border-2 border-[#1CB0F6]'
-                          : 'text-slate-600 hover:bg-slate-100'
+                      className={`p-4 rounded-xl border text-right cursor-pointer transition-all min-h-[104px] flex flex-col justify-between ${
+                        isFlipped
+                          ? 'bg-[#DDF7F2]/60 border-[#16A394] text-[#064E3B]'
+                          : 'bg-[#F7F5F0]/60 border-[#E5E1EB] hover:border-[#16A394]/50 text-[#24243B]'
                       }`}
                     >
-                      <span className="truncate">{chap.title}</span>
-                      {isDone && <Check className="w-4 h-4 text-[#58CC02] stroke-[3]" />}
+                      <div className="flex items-center justify-between gap-2 w-full">
+                        <span className="text-sm font-black">{fc.term}</span>
+                        {fc.englishTerm && (
+                          <span className="text-[11px] font-medium text-[#69697E] dir-ltr">
+                            {fc.englishTerm}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs font-medium mt-2.5 leading-relaxed text-right">
+                        {isFlipped ? fc.definition : 'مشاهده تعریف علمی ←'}
+                      </p>
                     </button>
                   );
                 })}
               </div>
-            </div>
-          ))}
-        </div>
-      </aside>
-
-      {/* ======================================================== */}
-      {/* 2. MAIN GUIDEBOOK / STORY READING ARENA                  */}
-      {/* ======================================================== */}
-      <main className="flex-1 max-w-3xl xl:max-w-4xl w-full flex flex-col gap-5">
-        {/* Unit Top Banner (Academic Guidebook Header) */}
-        <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-indigo-900 border border-indigo-900/60 border-b-4 border-b-slate-950 rounded-3xl p-5 sm:p-6 text-white shadow-xl flex items-center justify-between gap-3 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="flex items-center gap-2.5 sm:gap-3 flex-1 min-w-0 relative z-10">
-            <button
-              onClick={() => setIsSidebarOpen(true)}
-              className="lg:hidden p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white cursor-pointer min-w-[40px] min-h-[40px] flex items-center justify-center shrink-0 border border-white/10"
-              title="فهرست سرفصل‌ها"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
-            <div className="min-w-0 flex-1">
-              <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-indigo-200/90 block truncate">
-                کتابچه راهنما و مطالعه عمیق · بخش {currentSection.id}: {currentSection.title}
-              </span>
-              <h1 className="text-xl sm:text-2xl font-black mt-1 leading-tight text-white">{currentChapter.title}</h1>
-              <p className="text-[11px] sm:text-xs font-bold text-slate-300/80 mt-1 truncate">
-                {currentChapter.englishTitle}
-              </p>
-            </div>
-          </div>
-
-          <div className="shrink-0 hidden xs:block relative z-10 p-2 rounded-2xl bg-white/10 backdrop-blur-md border border-white/10">
-            <DuoMascot mood="tutor" size={54} animate={false} />
-          </div>
-        </div>
-
-        {/* TTS Notification Banner */}
-        {ttsNotice && (
-          <div className="p-3 bg-amber-50 border-2 border-amber-300 text-amber-900 rounded-2xl text-xs font-black">
-            {ttsNotice}
-          </div>
-        )}
-
-        {/* Academic Controls Toolbar */}
-        <div className="glass-panel rounded-2xl p-3 flex flex-wrap items-center justify-between gap-3 shadow-2xs border border-white/80">
-          {/* Segmented Pills (Academic vs Simple) */}
-          <div className="flex items-center bg-slate-100/90 p-1 rounded-xl border border-slate-200/80">
-            <button
-              onClick={() => {
-                playDuoSound('click');
-                setReadingMode('academic');
-              }}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
-                readingMode === 'academic'
-                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              متن دانشگاهی و مرجع
-            </button>
-            <button
-              onClick={() => {
-                playDuoSound('click');
-                setReadingMode('simplified');
-              }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
-                readingMode === 'simplified'
-                  ? 'bg-white text-indigo-700 shadow-2xs font-extrabold'
-                  : 'text-slate-500 hover:text-slate-900'
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
-              <span>خلاصه ساده</span>
-            </button>
-          </div>
-
-          {/* Action buttons: Font Size, Audio TTS, Notes, Bookmark */}
-          <div className="flex items-center gap-2 flex-wrap">
-            {/* Font Size Adjuster */}
-            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs font-black">
-              <button
-                onClick={() => {
-                  playDuoSound('click');
-                  setFontSize('sm');
-                }}
-                className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${
-                  fontSize === 'sm' ? 'bg-white text-slate-800 shadow-2xs font-black' : 'text-slate-400 hover:text-slate-700'
-                }`}
-                title="اندازه متن کوچک"
-              >
-                A-
-              </button>
-              <button
-                onClick={() => {
-                  playDuoSound('click');
-                  setFontSize('base');
-                }}
-                className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${
-                  fontSize === 'base' ? 'bg-white text-slate-800 shadow-2xs font-black' : 'text-slate-400 hover:text-slate-700'
-                }`}
-                title="اندازه متن استاندارد"
-              >
-                A
-              </button>
-              <button
-                onClick={() => {
-                  playDuoSound('click');
-                  setFontSize('lg');
-                }}
-                className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${
-                  fontSize === 'lg' ? 'bg-white text-slate-800 shadow-2xs font-black' : 'text-slate-400 hover:text-slate-700'
-                }`}
-                title="اندازه متن بزرگ"
-              >
-                A+
-              </button>
-            </div>
-
-            {/* Audio TTS Button */}
-            <button
-              onClick={handleToggleAudioTTS}
-              className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all ${
-                isSpeaking
-                  ? 'duo-btn-red animate-pulse'
-                  : 'duo-btn-blue'
-              }`}
-              title="خوانش صوتی متن با هوش صوتی"
-            >
-              {isSpeaking ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-              <span>{isSpeaking ? 'توقف خوانش' : 'گوش دادن'}</span>
-            </button>
-
-            {/* Notebook Toggle */}
-            <button
-              onClick={() => {
-                playDuoSound('click');
-                setShowNotesPanel(!showNotesPanel);
-              }}
-              className="duo-btn-white px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer"
-            >
-              <FileEdit className="w-4 h-4" />
-              <span>یادداشت</span>
-            </button>
-
-            {/* Pomodoro Focus Timer Toggle */}
-            {onOpenPomodoro && (
-              <button
-                onClick={() => {
-                  playDuoSound('click');
-                  onOpenPomodoro();
-                }}
-                className="duo-btn-yellow px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                title="شروع جلسه مطالعه متمرکز پومودورو برای این فصل"
-              >
-                <Timer className="w-4 h-4" />
-                <span>پومودورو</span>
-              </button>
-            )}
-
-            {/* Bookmark */}
-            <button
-              onClick={() => {
-                playDuoSound('click');
-                onToggleBookmark(currentChapter.id);
-              }}
-              className={`p-2 rounded-xl border-2 transition-all cursor-pointer ${
-                isBookmarked
-                  ? 'bg-amber-50 border-[#FFC800] text-amber-700'
-                  : 'border-slate-200 text-slate-400 hover:bg-slate-50'
-              }`}
-              title="نشان‌گذاری"
-            >
-              <Bookmark className="w-4 h-4 fill-current" />
-            </button>
-
-            {/* Pin */}
-            <button
-              onClick={() => {
-                playDuoSound('click');
-                onTogglePin(currentChapter.id);
-              }}
-              className={`p-2 rounded-xl border-2 transition-all cursor-pointer ${
-                isPinned
-                  ? 'bg-sky-50 border-[#1CB0F6] text-[#1CB0F6]'
-                  : 'border-slate-200 text-slate-400 hover:bg-slate-50'
-              }`}
-              title="پین در بالای داشبورد"
-            >
-              <Pin className="w-4 h-4 fill-current" />
-            </button>
-          </div>
-        </div>
-
-        {/* Subtopic tabs strip */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1">
-          <button
-            onClick={() => {
-              playDuoSound('click');
-              setActiveSubtopicIndex(null);
-            }}
-            className={`px-3 py-1.5 rounded-xl text-xs font-black whitespace-nowrap transition-all cursor-pointer ${
-              activeSubtopicIndex === null
-                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
-                : 'glass-pill text-slate-600 hover:text-indigo-900 hover:bg-white'
-            }`}
-          >
-            همه مباحث فصل
-          </button>
-          {currentChapter.subtopics.map((st, idx) => (
-            <button
-              key={idx}
-              onClick={() => {
-                playDuoSound('click');
-                setActiveSubtopicIndex(idx);
-              }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-black whitespace-nowrap transition-all cursor-pointer ${
-                activeSubtopicIndex === idx
-                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
-                  : 'glass-pill text-slate-600 hover:text-indigo-900 hover:bg-white'
-              }`}
-            >
-              {st}
-            </button>
-          ))}
-        </div>
-
-        {/* Note-taking expandable drawer */}
-        {showNotesPanel && (
-          <div className="bg-amber-50/80 border-2 border-b-4 border-amber-300 rounded-2xl p-4 flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-black text-amber-950 flex items-center gap-1.5">
-                <FileEdit className="w-4 h-4 text-amber-600" />
-                <span>یادداشت شخصی شما برای این فصل</span>
-              </span>
-              <button
-                onClick={handleSaveNoteAction}
-                className="bg-amber-400 hover:bg-amber-500 text-amber-950 px-3 py-1 rounded-xl text-xs font-black flex items-center gap-1 cursor-pointer transition-all shadow-2xs"
-              >
-                <Save className="w-3.5 h-3.5" />
-                <span>{isNoteSaved ? 'ذخیره شد!' : 'ذخیره'}</span>
-              </button>
-            </div>
-            <textarea
-              value={noteContent}
-              onChange={(e) => setNoteContent(e.target.value)}
-              placeholder="نکات مهم، خلاصه کلمات، یا یادآوری‌های خود را اینجا بنویسید..."
-              className="w-full h-24 p-3 bg-white border border-amber-200 rounded-xl text-xs font-bold text-slate-800 resize-none outline-none focus:border-amber-400"
-            />
-          </div>
-        )}
-
-        {/* Main Text Content Story Card - Deep Study Paper */}
-        <article className="glass-panel bg-white/90 backdrop-blur-md rounded-2xl sm:rounded-3xl p-4 sm:p-8 lg:p-10 shadow-sm border border-white/90">
-          {activeSubtopicDetail && (
-            <div className="mb-4 pb-3 border-b-2 border-slate-100 flex items-center justify-between">
-              <h2 className="text-base sm:text-lg font-black text-indigo-700">
-                {activeSubtopicDetail.title}
-              </h2>
-              <span className="text-[10px] sm:text-[11px] font-black px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
-                مبحث تخصصی
-              </span>
-            </div>
+            </section>
           )}
 
-          <div
-            className={`prose-persian max-w-none space-y-4 ${
-              fontSize === 'sm'
-                ? 'text-xs sm:text-sm leading-relaxed'
-                : fontSize === 'lg'
-                ? 'text-base sm:text-lg leading-loose'
-                : 'text-sm sm:text-base leading-relaxed sm:leading-loose'
-            }`}
-          >
-            {currentDisplayContent.split('\n\n').map((paragraph, pIdx) => (
-              <p key={pIdx}>
-                {paragraph}
-              </p>
-            ))}
-          </div>
-        </article>
-
-        {/* Key Points (نکات طلایی درس) */}
-        {currentChapter.keyPoints && currentChapter.keyPoints.length > 0 && (
-          <div className="glass-panel rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-sm border border-white/80">
-            <div className="flex items-center gap-2 mb-3.5 text-indigo-700 font-black">
-              <Star className="w-5 h-5 fill-amber-400 text-amber-500" />
-              <h3 className="text-sm sm:text-base font-black text-slate-900">نکات کلیدی برای آزمون و تثبیت مفهوم</h3>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
-              {currentChapter.keyPoints.map((point, kIdx) => (
-                <div
-                  key={kIdx}
-                  className="bg-white/80 border border-indigo-100 rounded-xl sm:rounded-2xl p-3 sm:p-3.5 flex items-start gap-2.5 text-xs font-black text-slate-800 shadow-2xs hover:border-indigo-300 transition-colors"
-                >
-                  <div className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center shrink-0 text-[10px] font-black">
-                    ✓
+          {/* Academic Sources & Citations */}
+          {chapterSources && chapterSources.length > 0 && (
+            <section className="bg-white border border-[#E5E1EB] rounded-2xl sm:rounded-3xl p-5 sm:p-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 pb-3 border-b border-[#E5E1EB]">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-[#EAE4FF] text-[#5B46E8] flex items-center justify-center shrink-0">
+                    <GraduationCap className="w-5 h-5" />
                   </div>
-                  <span className="leading-relaxed">{point}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Duolingo Flashcards (کارت‌های واژگان) */}
-        {currentChapter.flashcards && currentChapter.flashcards.length > 0 && (
-          <div className="glass-panel rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-sm border border-white/80">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2 font-black text-slate-900">
-              <DuoMascot mood="happy" size={36} animate={false} />
-              <h3 className="text-base font-black">فلش‌کارت‌های تخصصی فصل</h3>
-            </div>
-            <span className="text-xs font-bold text-slate-400">
-              برای مشاهده تعریف بر روی کارت کلیک کن
-            </span>
-          </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {currentChapter.flashcards.map((fc) => {
-                const isFlipped = revealedFlashcards[fc.id];
-                return (
-                  <div
-                    key={fc.id}
-                    onClick={() => {
-                      playDuoSound('click');
-                      setRevealedFlashcards((prev) => ({
-                        ...prev,
-                        [fc.id]: !prev[fc.id],
-                      }));
-                    }}
-                    className={`p-4 rounded-2xl border-2 border-b-4 cursor-pointer transition-all select-none min-h-[100px] flex flex-col justify-between ${
-                      isFlipped
-                        ? 'bg-[#DDF4FF] border-[#1CB0F6] text-[#1899D6]'
-                        : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-800'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-black">{fc.term}</span>
-                      {fc.englishTerm && (
-                        <span className="text-[10px] font-bold text-slate-400">
-                          {fc.englishTerm}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs font-bold mt-2 leading-relaxed">
-                      {isFlipped ? fc.definition : '💡 لمس برای مشاهده تعریف...'}
+                  <div>
+                    <h3 className="text-sm sm:text-base font-black text-[#24243B] flex items-center gap-2">
+                      <span>منابع و رفرنس‌های دانشگاهی فصل</span>
+                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-[#F7F5F0] text-[#69697E] border border-[#E5E1EB]">
+                        APA 7th
+                      </span>
+                    </h3>
+                    <p className="text-xs font-medium text-[#69697E]">
+                      محتوای این فصل بر اساس منابع معتبر روان‌شناسی تدوین شده است
                     </p>
                   </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Academic Sources & Citations (منابع و مراجع علمی فصل) */}
-        {chapterSources && chapterSources.length > 0 && (
-          <div className="bg-white border-2 border-b-4 border-indigo-200 rounded-3xl p-6 shadow-xs">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 pb-3 border-b-2 border-indigo-50">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600 shrink-0">
-                  <GraduationCap className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-black text-slate-800 flex items-center gap-2">
-                    <span>منابع و رفرنس‌های آکادمیک این فصل</span>
-                    <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
-                      فرمت رسمی APA 7th
-                    </span>
-                  </h3>
-                  <p className="text-xs font-bold text-slate-400">
-                    محتوای آموزشی این فصل بر اساس کتب و مراجع دانشگاهی استاندارد تدوین شده است
-                  </p>
                 </div>
               </div>
-            </div>
 
-            <div className="space-y-3">
-              {chapterSources.map((src) => {
-                const isCopied = copiedSourceId === src.id;
-                return (
-                  <div
-                    key={src.id}
-                    className="p-4 rounded-2xl border-2 border-slate-200 bg-slate-50/60 hover:bg-white hover:border-indigo-300 transition-all flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-right"
-                  >
-                    <div className="flex items-start gap-3 flex-1 min-w-0">
-                      <div className="w-7 h-7 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-500 shrink-0 mt-0.5">
-                        <Quote className="w-3.5 h-3.5 text-indigo-500" />
-                      </div>
-                      <div className="space-y-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs font-black text-indigo-950">
-                            {src.bookOrJournal}
-                          </span>
-                          {src.editionOrVolume && (
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-200 text-slate-700">
-                              {src.editionOrVolume}
+              <div className="space-y-3">
+                {chapterSources.map((src) => {
+                  const isCopied = copiedSourceId === src.id;
+                  return (
+                    <div
+                      key={src.id}
+                      className="p-4 rounded-xl border border-[#E5E1EB] bg-[#F7F5F0]/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-right"
+                    >
+                      <div className="flex items-start gap-3 flex-1 min-w-0">
+                        <div className="w-7 h-7 rounded-lg bg-white border border-[#E5E1EB] flex items-center justify-center text-[#5B46E8] shrink-0 mt-0.5">
+                          <Quote className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="space-y-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-extrabold text-[#24243B]">
+                              {src.bookOrJournal}
+                            </span>
+                            {src.editionOrVolume && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white border border-[#E5E1EB] text-[#69697E]">
+                                {src.editionOrVolume}
+                              </span>
+                            )}
+                            <span className="text-[10px] font-bold text-[#69697E]">
+                              سال {toPersianDigits(src.year)}
+                            </span>
+                          </div>
+                          <p className="text-xs font-medium text-[#69697E] font-mono leading-relaxed select-all dir-ltr text-left">
+                            {src.citationAPA}
+                          </p>
+                          {src.chapterOrPages && (
+                            <span className="text-[11px] font-medium text-[#69697E] block">
+                              {src.chapterOrPages}
                             </span>
                           )}
-                          <span className="text-[10px] font-bold text-slate-400">
-                            سال {src.year}
-                          </span>
                         </div>
-                        <p className="text-xs font-bold text-slate-600 font-mono leading-relaxed select-all dir-ltr text-left">
-                          {src.citationAPA}
-                        </p>
-                        {src.chapterOrPages && (
-                          <span className="text-[11px] font-bold text-slate-500 block">
-                            📌 {src.chapterOrPages}
-                          </span>
-                        )}
                       </div>
+
+                      <button
+                        onClick={() => handleCopyCitation(src.citationAPA, src.id)}
+                        className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shrink-0 transition-colors border min-h-[44px] ${
+                          isCopied
+                            ? 'bg-[#169E6C] text-white border-[#169E6C]'
+                            : 'bg-white border-[#E5E1EB] hover:border-[#5B46E8] text-[#24243B]'
+                        }`}
+                      >
+                        {isCopied ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-white" />
+                            <span>کپی شد</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>کپی رفرنس</span>
+                          </>
+                        )}
+                      </button>
                     </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
 
-                    <button
-                      onClick={() => handleCopyCitation(src.citationAPA, src.id)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shrink-0 transition-all ${
-                        isCopied
-                          ? 'bg-[#58CC02] text-white border-b-2 border-[#46A302]'
-                          : 'bg-white border-2 border-slate-200 hover:border-indigo-400 text-slate-700 hover:text-indigo-600'
-                      }`}
-                      title="کپی رفرنس کامل جهت استفاده در مقاله یا پایان‌نامه"
-                    >
-                      {isCopied ? (
-                        <>
-                          <Check className="w-3.5 h-3.5 text-white" />
-                          <span>کپی شد!</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3.5 h-3.5" />
-                          <span>کپی رفرنس APA</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Bottom Celebration / Actions Bar */}
-        <div className="bg-white border-2 border-b-4 border-slate-200 rounded-3xl p-5 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xs">
-          <div className="flex items-center gap-3">
-            <DuoMascot mood={isCompleted ? 'excited' : 'happy'} size={56} />
+          {/* Direct Connection to Practice & Completion Bar */}
+          <div className="bg-white border border-[#E5E1EB] rounded-2xl sm:rounded-3xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="text-right">
-              <span className="text-sm font-black text-slate-800 block">
-                {isCompleted ? 'این فصل با موفقیت تمام شده!' : 'آماده برای پایان درس؟'}
+              <span className="text-sm font-black text-[#24243B] block">
+                {isCompleted ? 'مطالعه این فصل ثبت شده است' : 'ثبت مطالعه و ورود به تمرین فصل'}
               </span>
-              <span className="text-xs font-bold text-slate-400">
-                با ثبت اتمام، ۲۰ امتیاز تجربه XP دریافت می‌کنی.
+              <span className="text-xs font-medium text-[#69697E] mt-0.5 block">
+                پس از مطالعه متن، با حل سوالات مرتبط، مفاهیم را در حافظه بلندمدت تثبیت کنید.
               </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+              {/* Ask AI Mentor about chapter */}
+              <button
+                onClick={() => {
+                  playDuoSound('click');
+                  onAskMentorAboutChapter(currentChapter.title, currentSection.title);
+                }}
+                className="px-3.5 py-2.5 rounded-xl text-xs font-extrabold text-[#5B46E8] bg-[#EAE4FF]/70 hover:bg-[#EAE4FF] border border-[#5B46E8]/25 cursor-pointer flex items-center justify-center gap-1.5 transition-colors min-h-[44px]"
+              >
+                <MessageSquare className="w-3.5 h-3.5" />
+                <span>پرسش از منتور</span>
+              </button>
+
+              {/* Mark Completed */}
+              <button
+                onClick={handleCompleteLesson}
+                className={`flex-1 sm:flex-initial px-4 py-2.5 rounded-xl text-xs font-extrabold cursor-pointer flex items-center justify-center gap-1.5 border transition-colors min-h-[44px] ${
+                  isCompleted
+                    ? 'bg-[#DDF7F2] text-[#064E3B] border-[#169E6C]/35'
+                    : 'bg-[#F7F5F0] hover:bg-[#DDF7F2]/60 text-[#24243B] border-[#E5E1EB]'
+                }`}
+              >
+                <CheckCircle2 className="w-4 h-4 text-[#169E6C]" />
+                <span>{isCompleted ? 'تکمیل شده' : `ثبت مطالعه (+${toPersianDigits(20)} XP)`}</span>
+              </button>
+
+              {/* Jump to Quiz */}
+              <button
+                onClick={() => {
+                  playDuoSound('click');
+                  onStartQuiz(currentChapter);
+                }}
+                className="flex-1 sm:flex-initial px-5 py-2.5 rounded-xl bg-[#5B46E8] hover:bg-[#4935D4] text-white text-xs font-extrabold cursor-pointer flex items-center justify-center gap-1.5 transition-colors min-h-[44px]"
+              >
+                <Zap className="w-4 h-4" />
+                <span>آزمون این فصل</span>
+              </button>
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5 w-full sm:w-auto">
-            {/* Mark Completed */}
-            <button
-              onClick={handleCompleteLesson}
-              className={`flex-1 sm:flex-initial px-5 py-3 rounded-2xl text-xs font-black cursor-pointer flex items-center justify-center gap-2 ${
-                isCompleted ? 'duo-btn-yellow' : 'duo-btn-green'
-              }`}
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              <span>{isCompleted ? 'تکمیل شده ✓' : 'اتمام درس (+۲۰ XP)'}</span>
-            </button>
-
-            {/* Jump to Quiz */}
-            <button
-              onClick={() => {
-                playDuoSound('click');
-                onStartQuiz(currentChapter);
-              }}
-              className="duo-btn-blue px-5 py-3 rounded-2xl text-xs font-black cursor-pointer flex items-center justify-center gap-2"
-            >
-              <Zap className="w-4 h-4 fill-white" />
-              <span>شروع کوئیز</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Prev / Next Chapter Buttons */}
-        <div className="flex items-center justify-between pt-2 gap-2">
+        {/* Prev / Next Chapter Navigation */}
+        <div className="flex items-center justify-between pt-1 gap-3">
           {prevChapter ? (
             <button
               onClick={() => {
                 playDuoSound('click');
                 onSelectChapter(prevChapter);
               }}
-              className="duo-btn-white px-3 sm:px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer max-w-[48%] min-h-[44px]"
+              className="bg-white hover:bg-[#F7F5F0] border border-[#E5E1EB] text-[#24243B] px-4 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer max-w-[48%] min-h-[44px] transition-colors"
             >
-              <ChevronRight className="w-4 h-4 shrink-0" />
+              <ChevronRight className="w-4 h-4 shrink-0 text-[#69697E]" />
               <span className="truncate">
                 <span className="sm:hidden">فصل قبل</span>
                 <span className="hidden sm:inline">فصل قبلی: {prevChapter.title}</span>
@@ -746,13 +808,13 @@ export const BookReaderView: React.FC<BookReaderViewProps> = ({
                 playDuoSound('click');
                 onSelectChapter(nextChapter);
               }}
-              className="duo-btn-white px-3 sm:px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer max-w-[48%] min-h-[44px]"
+              className="bg-white hover:bg-[#F7F5F0] border border-[#E5E1EB] text-[#24243B] px-4 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer max-w-[48%] min-h-[44px] transition-colors"
             >
               <span className="truncate">
                 <span className="sm:hidden">فصل بعد</span>
                 <span className="hidden sm:inline">فصل بعدی: {nextChapter.title}</span>
               </span>
-              <ChevronLeft className="w-4 h-4 shrink-0" />
+              <ChevronLeft className="w-4 h-4 shrink-0 text-[#69697E]" />
             </button>
           )}
         </div>
@@ -760,3 +822,4 @@ export const BookReaderView: React.FC<BookReaderViewProps> = ({
     </div>
   );
 };
+

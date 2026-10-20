@@ -51,6 +51,10 @@ export interface LiveTrafficEvent {
 }
 
 export interface SiteAnalyticsData {
+  adminView?: boolean;
+  isAdminView?: boolean;
+  detailedAnalyticsRedacted?: boolean;
+  retentionPolicyDays?: number;
   onlineUsersCount: number;
   onlineSessions: ActiveOnlineUser[];
   today: {

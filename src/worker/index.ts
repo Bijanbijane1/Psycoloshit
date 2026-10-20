@@ -20,6 +20,71 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
+    // Rate limiting across all /api/* routes (Tier-1 memory + Tier-2 D1 quota on billable AI routes)
+    if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
+      const { checkWorkerRateLimit } = await import('./rateLimiter.ts');
+      const rateLimitResponse = await checkWorkerRateLimit(request, url.pathname, env);
+      if (rateLimitResponse) {
+        return rateLimitResponse;
+      }
+    }
+
+    // Application Health Check endpoint (/api/health)
+    if (url.pathname === '/api/health') {
+      if (request.method !== 'GET') {
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            error: 'Method Not Allowed',
+          }),
+          {
+            status: 405,
+            headers: {
+              'Content-Type': 'application/json',
+              'Allow': 'GET',
+              'Cache-Control': 'no-store',
+            },
+          }
+        );
+      }
+
+      const { isWorkerAiAvailable, workerAiCache } = await import('./ai.ts');
+      let d1Available = false;
+      let totalQuestionsInBank = 0;
+
+      if (env.DB) {
+        try {
+          const { D1QuestionRepository } = await import('./db/questionRepository.ts');
+          const qRepo = new D1QuestionRepository(env.DB);
+          totalQuestionsInBank = await qRepo.getTotalCount();
+          d1Available = true;
+        } catch {
+          d1Available = false;
+        }
+      }
+
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 'ok',
+          service: 'PsychoMaster Academic Platform',
+          runtime: 'cloudflare-worker',
+          aiAvailable: isWorkerAiAvailable(env),
+          d1Available,
+          cacheStats: workerAiCache.getStats(),
+          totalQuestionsInBank,
+          timestamp: new Date().toISOString(),
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store',
+          },
+        }
+      );
+    }
+
     // Hardened D1 Connectivity Health Check endpoint
     if (url.pathname === '/api/d1/health' || url.pathname === '/api/d1-health') {
       // 1. Enforce GET only
@@ -567,7 +632,13 @@ export default {
     // User Progress Cloud Sync & Leaderboard Endpoints in D1
     // ==============================================================
 
-    if (url.pathname === '/api/user/sync' && request.method === 'POST') {
+    if (url.pathname === '/api/user/sync') {
+      if (request.method !== 'POST') {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'Method Not Allowed' }),
+          { status: 405, headers: { 'Content-Type': 'application/json', 'Allow': 'POST', 'Cache-Control': 'no-store' } }
+        );
+      }
       if (!env.DB) {
         return new Response(JSON.stringify({ error: 'Database service is unavailable' }), { status: 503 });
       }
@@ -715,7 +786,13 @@ export default {
       }
     }
 
-    if (url.pathname.startsWith('/api/user/sync/') && request.method === 'GET') {
+    if (url.pathname.startsWith('/api/user/sync/')) {
+      if (request.method !== 'GET') {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'Method Not Allowed' }),
+          { status: 405, headers: { 'Content-Type': 'application/json', 'Allow': 'GET', 'Cache-Control': 'no-store' } }
+        );
+      }
       if (!env.DB) {
         return new Response(JSON.stringify({ error: 'Database service is unavailable' }), { status: 503 });
       }
@@ -768,21 +845,51 @@ export default {
       return new Response(JSON.stringify(user), { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
     }
 
-    if (url.pathname === '/api/leaderboard' && request.method === 'GET') {
+    if (url.pathname === '/api/leaderboard') {
+      if (request.method !== 'GET') {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'Method Not Allowed' }),
+          { status: 405, headers: { 'Content-Type': 'application/json', 'Allow': 'GET', 'Cache-Control': 'no-store' } }
+        );
+      }
       if (!env.DB) {
         return new Response(JSON.stringify({ error: 'Database service is unavailable' }), { status: 503 });
       }
-      const currentUserId = url.searchParams.get('userId') || undefined;
-      const { D1UserRepository } = await import('./db/userRepository.ts');
+      const requestedUserId = url.searchParams.get('userId')?.trim() || undefined;
+      const { D1UserRepository, SEEDED_COMPETITOR_IDS } = await import('./db/userRepository.ts');
       const userRepo = new D1UserRepository(env.DB);
-      const leaderboardData = await userRepo.getLeaderboard(currentUserId);
+      let verifiedCurrentUserId: string | undefined = undefined;
+
+      if (requestedUserId) {
+        if (SEEDED_COMPETITOR_IDS.has(requestedUserId)) {
+          verifiedCurrentUserId = requestedUserId;
+        } else {
+          const { hashSessionToken, extractBearerToken, extractGuestToken } = await import('./auth.ts');
+          const rawToken = extractBearerToken(request) || extractGuestToken(request);
+          if (rawToken) {
+            const tokenHash = await hashSessionToken(rawToken);
+            const sessionResult = await userRepo.validateSession(tokenHash);
+            if (sessionResult && sessionResult.user.userId === requestedUserId) {
+              verifiedCurrentUserId = sessionResult.user.userId;
+            }
+          }
+        }
+      }
+
+      const leaderboardData = await userRepo.getLeaderboard(verifiedCurrentUserId);
       return new Response(
         JSON.stringify(leaderboardData),
         { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
       );
     }
 
-    if (url.pathname === '/api/leaderboard/submit' && request.method === 'POST') {
+    if (url.pathname === '/api/leaderboard/submit') {
+      if (request.method !== 'POST') {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'Method Not Allowed' }),
+          { status: 405, headers: { 'Content-Type': 'application/json', 'Allow': 'POST', 'Cache-Control': 'no-store' } }
+        );
+      }
       if (!env.DB) {
         return new Response(JSON.stringify({ error: 'Database service is unavailable' }), { status: 503 });
       }
@@ -939,25 +1046,889 @@ export default {
       }
     }
 
+    // ==============================================================
+    // Question Bank Endpoints (/api/quiz/bank & /api/quiz/bank/generate)
+    // ==============================================================
+
+    if (url.pathname === '/api/quiz/bank') {
+      if (request.method !== 'GET') {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'Method Not Allowed' }),
+          {
+            status: 405,
+            headers: {
+              'Content-Type': 'application/json',
+              'Allow': 'GET',
+              'Cache-Control': 'no-store',
+            },
+          }
+        );
+      }
+
+      if (!env.DB) {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'Database service is unavailable' }),
+          { status: 503, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+        );
+      }
+
+      const chapterId = url.searchParams.get('chapterId')?.trim() || undefined;
+      const difficulty = url.searchParams.get('difficulty')?.trim() || undefined;
+      const rawLimit = url.searchParams.get('limit');
+      const limit = rawLimit !== null ? Number(rawLimit) : 10;
+
+      if (difficulty && difficulty !== 'easy' && difficulty !== 'medium' && difficulty !== 'hard') {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'Invalid difficulty filter. Allowed: easy, medium, hard' }),
+          { status: 400, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+        );
+      }
+
+      try {
+        const { D1QuestionRepository } = await import('./db/questionRepository.ts');
+        const qRepo = new D1QuestionRepository(env.DB);
+        await qRepo.ensureSeeded();
+        const questions = await qRepo.getQuestions({
+          chapterId,
+          difficulty,
+          limit: Number.isFinite(limit) ? limit : 10,
+        });
+        const totalInBank = await qRepo.getTotalCount();
+        const sanitizedQuestions = questions.map(({ correctIndex: _ci, explanation: _exp, ...publicFields }) => publicFields);
+
+        return new Response(
+          JSON.stringify({
+            questions: sanitizedQuestions,
+            totalInBank,
+          }),
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+              'Cache-Control': 'no-store',
+            },
+          }
+        );
+      } catch (err: unknown) {
+        console.error('Worker quiz bank error:', err);
+        return new Response(
+          JSON.stringify({ ok: false, error: 'خطا در بازیابی بانک سوالات.' }),
+          { status: 500, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+        );
+      }
+    }
+
+    if (url.pathname === '/api/quiz/bank/generate') {
+      const { handleWorkerQuizBankGenerate } = await import('./ai.ts');
+      return handleWorkerQuizBankGenerate(request, env);
+    }
+
+    // ==============================================================
+    // AI Mentor & Adaptive Study Plan Endpoints (/api/ai/*)
+    // ==============================================================
+
+    if (url.pathname === '/api/ai/mentor') {
+      const { handleWorkerAiMentor } = await import('./ai.ts');
+      return handleWorkerAiMentor(request, env);
+    }
+
+    if (url.pathname === '/api/ai/mentor/stream') {
+      const { handleWorkerAiMentorStream } = await import('./ai.ts');
+      return handleWorkerAiMentorStream(request, env);
+    }
+
+    if (url.pathname === '/api/ai/adaptive-plan') {
+      const { handleWorkerAiAdaptivePlan } = await import('./ai.ts');
+      return handleWorkerAiAdaptivePlan(request, env);
+    }
+
+    // ==============================================================
+    // Site Traffic Analytics & Student Summary Report Endpoints
+    // ==============================================================
+
+    if (url.pathname === '/api/analytics/ping') {
+      if (request.method !== 'POST') {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'Method Not Allowed' }),
+          {
+            status: 405,
+            headers: {
+              'Content-Type': 'application/json',
+              'Allow': 'POST',
+              'Cache-Control': 'no-store',
+            },
+          }
+        );
+      }
+
+      const { validateRequestOrigin } = await import('./auth.ts');
+      const originHeader = request.headers.get('Origin') || request.headers.get('origin');
+      const refererHeader = request.headers.get('Referer') || request.headers.get('referer');
+      const secFetchSiteHeader =
+        request.headers.get('Sec-Fetch-Site') || request.headers.get('sec-fetch-site');
+      if (
+        !validateRequestOrigin(originHeader, [url.origin, env.APP_URL], {
+          refererHeader,
+          secFetchSiteHeader,
+        })
+      ) {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'Forbidden: Cross-origin request rejected' }),
+          { status: 403, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+        );
+      }
+
+      let body: Record<string, unknown>;
+      try {
+        body = (await request.json()) as Record<string, unknown>;
+      } catch {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'Invalid JSON payload' }),
+          { status: 400, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+        );
+      }
+
+      const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : '';
+      const visitorId = typeof body?.visitorId === 'string' ? body.visitorId.trim() : '';
+      if (!sessionId || !visitorId) {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'Missing sessionId or visitorId' }),
+          { status: 400, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+        );
+      }
+
+      const { workerAnalyticsManager } = await import('./analytics.ts');
+      const rawDevice = typeof body.device === 'string' ? body.device.trim() : 'mobile';
+      const device: 'mobile' | 'desktop' | 'tablet' =
+        rawDevice === 'desktop' || rawDevice === 'tablet' || rawDevice === 'mobile'
+          ? rawDevice
+          : 'mobile';
+
+      const result = workerAnalyticsManager.ping({
+        sessionId: sessionId.slice(0, 128),
+        visitorId: visitorId.slice(0, 128),
+        device,
+        browser: typeof body.browser === 'string' && body.browser.trim() ? body.browser.trim().slice(0, 64) : 'Chrome',
+        os: typeof body.os === 'string' && body.os.trim() ? body.os.trim().slice(0, 64) : 'Android',
+        path: typeof body.path === 'string' && body.path.trim() ? body.path.trim().slice(0, 128) : '/dashboard',
+        title: typeof body.title === 'string' && body.title.trim() ? body.title.trim().slice(0, 160) : 'صفحه اصلی',
+      });
+
+      return new Response(
+        JSON.stringify({ ok: true, ...result }),
+        { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+      );
+    }
+
+    if (url.pathname === '/api/analytics/track') {
+      if (request.method !== 'POST') {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'Method Not Allowed' }),
+          {
+            status: 405,
+            headers: {
+              'Content-Type': 'application/json',
+              'Allow': 'POST',
+              'Cache-Control': 'no-store',
+            },
+          }
+        );
+      }
+
+      const { validateRequestOrigin } = await import('./auth.ts');
+      const originHeader = request.headers.get('Origin') || request.headers.get('origin');
+      const refererHeader = request.headers.get('Referer') || request.headers.get('referer');
+      const secFetchSiteHeader =
+        request.headers.get('Sec-Fetch-Site') || request.headers.get('sec-fetch-site');
+      if (
+        !validateRequestOrigin(originHeader, [url.origin, env.APP_URL], {
+          refererHeader,
+          secFetchSiteHeader,
+        })
+      ) {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'Forbidden: Cross-origin request rejected' }),
+          { status: 403, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+        );
+      }
+
+      let body: Record<string, unknown>;
+      try {
+        body = (await request.json()) as Record<string, unknown>;
+      } catch {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'Invalid JSON payload' }),
+          { status: 400, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+        );
+      }
+
+      const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : '';
+      const visitorId = typeof body?.visitorId === 'string' ? body.visitorId.trim() : '';
+      if (!sessionId || !visitorId) {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'Missing visitorId or sessionId' }),
+          { status: 400, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+        );
+      }
+
+      const { workerAnalyticsManager } = await import('./analytics.ts');
+      const rawDevice = typeof body.device === 'string' ? body.device.trim() : 'mobile';
+      const device: 'mobile' | 'desktop' | 'tablet' =
+        rawDevice === 'desktop' || rawDevice === 'tablet' || rawDevice === 'mobile'
+          ? rawDevice
+          : 'mobile';
+
+      await workerAnalyticsManager.track(
+        {
+          visitorId: visitorId.slice(0, 128),
+          sessionId: sessionId.slice(0, 128),
+          device,
+          browser: typeof body.browser === 'string' && body.browser.trim() ? body.browser.trim().slice(0, 64) : 'Chrome',
+          os: typeof body.os === 'string' && body.os.trim() ? body.os.trim().slice(0, 64) : 'Android',
+          path: typeof body.path === 'string' && body.path.trim() ? body.path.trim().slice(0, 128) : '/dashboard',
+          title: typeof body.title === 'string' && body.title.trim() ? body.title.trim().slice(0, 160) : 'مشاهده صفحه',
+          eventType: typeof body.eventType === 'string' && body.eventType.trim() ? body.eventType.trim().slice(0, 64) : 'pageview',
+          referrer: typeof body.referrer === 'string' ? body.referrer.trim().slice(0, 256) : '',
+        },
+        env.DB
+      );
+
+      return new Response(
+        JSON.stringify({ ok: true, onlineUsersCount: workerAnalyticsManager.getOnlineCount() }),
+        { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+      );
+    }
+
+    if (url.pathname === '/api/analytics/stats') {
+      if (request.method !== 'GET') {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'Method Not Allowed' }),
+          {
+            status: 405,
+            headers: {
+              'Content-Type': 'application/json',
+              'Allow': 'GET',
+              'Cache-Control': 'no-store',
+            },
+          }
+        );
+      }
+
+      const { workerAnalyticsManager, verifyAdminAnalyticsAccess } = await import('./analytics.ts');
+      const access = await verifyAdminAnalyticsAccess(request, env);
+
+      const detailedParam = (url.searchParams.get('detailed') || '').toLowerCase();
+      const scopeParam = (url.searchParams.get('scope') || url.searchParams.get('view') || '').toLowerCase();
+      const headerScope = (request.headers.get('X-Analytics-Scope') || '').toLowerCase();
+      const explicitlyRequestedDetailed =
+        detailedParam === 'true' ||
+        detailedParam === '1' ||
+        scopeParam === 'admin' ||
+        scopeParam === 'detailed' ||
+        headerScope === 'admin' ||
+        headerScope === 'detailed';
+
+      if (explicitlyRequestedDetailed) {
+        if (!access.isAuthenticated) {
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              error: 'Unauthorized: Verified administrator session is required for detailed analytics.',
+            }),
+            { status: 401, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+          );
+        }
+        if (!access.isAdmin) {
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              error: 'Forbidden: Verified administrator privileges are required for detailed analytics.',
+            }),
+            { status: 403, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+          );
+        }
+      }
+
+      const stats = await workerAnalyticsManager.getStats({
+        isAdmin: access.isAdmin,
+        db: env.DB,
+      });
+
+      return new Response(
+        JSON.stringify(stats),
+        { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+      );
+    }
+
+    if (url.pathname === '/api/reports/student-summary') {
+      if (request.method !== 'POST') {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'Method Not Allowed' }),
+          {
+            status: 405,
+            headers: {
+              'Content-Type': 'application/json',
+              'Allow': 'POST',
+              'Cache-Control': 'no-store',
+            },
+          }
+        );
+      }
+
+      const {
+        validateRequestOrigin,
+        extractBearerToken,
+        extractGuestToken,
+        hashSessionToken,
+      } = await import('./auth.ts');
+
+      const originHeader = request.headers.get('Origin') || request.headers.get('origin');
+      const refererHeader = request.headers.get('Referer') || request.headers.get('referer');
+      const secFetchSiteHeader =
+        request.headers.get('Sec-Fetch-Site') || request.headers.get('sec-fetch-site');
+      if (
+        !validateRequestOrigin(originHeader, [url.origin, env.APP_URL], {
+          refererHeader,
+          secFetchSiteHeader,
+        })
+      ) {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'Forbidden: Cross-origin request rejected' }),
+          { status: 403, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+        );
+      }
+
+      let body: Record<string, unknown>;
+      try {
+        body = (await request.json()) as Record<string, unknown>;
+      } catch {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'Invalid JSON payload' }),
+          { status: 400, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+        );
+      }
+
+      if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'Invalid report payload' }),
+          { status: 400, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+        );
+      }
+
+      const { buildStudentSummaryReport } = await import('./analytics.ts');
+      let verifiedContext: {
+        user: import('./db/schema.ts').SyncedUserProfile;
+        verifiedCompletedStages: Set<number>;
+      } | null = null;
+
+      const requestedUserId = typeof body.userId === 'string' ? body.userId.trim() : '';
+
+      if (env.DB) {
+        const { D1UserRepository } = await import('./db/userRepository.ts');
+        const userRepo = new D1UserRepository(env.DB);
+        const rawBearer = extractBearerToken(request);
+        const rawGuest = extractGuestToken(request, body);
+        const rawToken = rawBearer || rawGuest;
+
+        if (rawToken) {
+          const tokenHash = await hashSessionToken(rawToken);
+          const sessionResult = await userRepo.validateSession(tokenHash);
+          if (!sessionResult) {
+            return new Response(
+              JSON.stringify({ ok: false, error: 'Unauthorized: Invalid or expired session token' }),
+              { status: 401, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+            );
+          }
+          if (requestedUserId && requestedUserId !== sessionResult.user.userId) {
+            return new Response(
+              JSON.stringify({ ok: false, error: 'Forbidden: Cannot generate verified report for another user' }),
+              { status: 403, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+            );
+          }
+          const verifiedCompletedStages = await userRepo.getVerifiedCompletedStageNumbers(
+            sessionResult.user.userId
+          );
+          verifiedContext = {
+            user: sessionResult.user,
+            verifiedCompletedStages,
+          };
+        } else if (requestedUserId) {
+          return new Response(
+            JSON.stringify({ ok: false, error: 'Unauthorized: Session token required to request user report by userId' }),
+            { status: 401, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+          );
+        }
+      }
+
+      const report = buildStudentSummaryReport(body, verifiedContext);
+
+      return new Response(
+        JSON.stringify({ ok: true, verified: report.verified, report }),
+        { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+      );
+    }
+
+    // ==============================================================
+    // Phase 10B: Advanced Entrance Exam Simulator Endpoints (/api/exams/*)
+    // ==============================================================
+
+    if (url.pathname.startsWith('/api/exams/')) {
+      if (!env.DB) {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'Database service is unavailable' }),
+          { status: 503, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+        );
+      }
+
+      const { D1ExamRepository } = await import('./db/examRepository.ts');
+      const { D1UserRepository } = await import('./db/userRepository.ts');
+      const {
+        validateRequestOrigin,
+        extractBearerToken,
+        extractGuestToken,
+        hashSessionToken,
+      } = await import('./auth.ts');
+
+      const examRepo = new D1ExamRepository(env.DB);
+      const userRepo = new D1UserRepository(env.DB);
+
+      // Validate Origin / Referer / Sec-Fetch-Site on state-changing exam requests
+      if (request.method !== 'GET' && request.method !== 'HEAD' && request.method !== 'OPTIONS') {
+        const originHeader = request.headers.get('Origin') || request.headers.get('origin');
+        const refererHeader = request.headers.get('Referer') || request.headers.get('referer');
+        const secFetchSiteHeader =
+          request.headers.get('Sec-Fetch-Site') || request.headers.get('sec-fetch-site');
+        if (
+          !validateRequestOrigin(originHeader, [url.origin, env.APP_URL], {
+            refererHeader,
+            secFetchSiteHeader,
+          })
+        ) {
+          return new Response(
+            JSON.stringify({ ok: false, error: 'Forbidden: Cross-origin request rejected' }),
+            { status: 403, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+          );
+        }
+      }
+
+      // 1. GET /api/exams/blueprints
+      if (url.pathname === '/api/exams/blueprints') {
+        if (request.method !== 'GET') {
+          return new Response(
+            JSON.stringify({ ok: false, error: 'Method Not Allowed' }),
+            {
+              status: 405,
+              headers: {
+                'Content-Type': 'application/json',
+                'Allow': 'GET',
+                'Cache-Control': 'no-store',
+              },
+            }
+          );
+        }
+
+        try {
+          const blueprints = await examRepo.listBlueprints();
+          return new Response(
+            JSON.stringify({ ok: true, blueprints }),
+            { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+          );
+        } catch (err: unknown) {
+          console.error('Error listing exam blueprints in worker:', err);
+          return new Response(
+            JSON.stringify({ ok: false, error: 'خطا در بازیابی فهرست آزمون‌ها.' }),
+            { status: 500, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+          );
+        }
+      }
+
+      // Helper to resolve authenticated user (Google session or active guest session)
+      const resolveAuthenticatedExamUser = async (body?: Record<string, unknown>) => {
+        const rawBearer = extractBearerToken(request);
+        const rawGuest = extractGuestToken(request, body);
+        const rawToken = rawBearer || rawGuest;
+        if (!rawToken) return null;
+        const tokenHash = await hashSessionToken(rawToken);
+        return userRepo.validateSession(tokenHash);
+      };
+
+      // 2. POST /api/exams/attempts/start
+      if (url.pathname === '/api/exams/attempts/start') {
+        if (request.method !== 'POST') {
+          return new Response(
+            JSON.stringify({ ok: false, error: 'Method Not Allowed' }),
+            {
+              status: 405,
+              headers: {
+                'Content-Type': 'application/json',
+                'Allow': 'POST',
+                'Cache-Control': 'no-store',
+              },
+            }
+          );
+        }
+
+        let body: Record<string, unknown> = {};
+        try {
+          body = (await request.json()) as Record<string, unknown>;
+        } catch {
+          return new Response(
+            JSON.stringify({ ok: false, error: 'ساختار درخواست نامعتبر است.' }),
+            { status: 400, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+          );
+        }
+
+        const sessionResult = await resolveAuthenticatedExamUser(body);
+        if (!sessionResult) {
+          return new Response(
+            JSON.stringify({ ok: false, error: 'Unauthorized: Active session token is required to start an exam' }),
+            { status: 401, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+          );
+        }
+
+        const requestedUserId = typeof body.userId === 'string' ? body.userId.trim() : '';
+        if (requestedUserId && requestedUserId !== sessionResult.user.userId) {
+          return new Response(
+            JSON.stringify({ ok: false, error: 'Forbidden: Cannot start exam attempt for another user' }),
+            { status: 403, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+          );
+        }
+
+        const blueprintId = typeof body.blueprintId === 'string' ? body.blueprintId.trim() : '';
+        const idempotencyKey =
+          typeof body.idempotencyKey === 'string' ? body.idempotencyKey.trim() : undefined;
+
+        const result = await examRepo.startAttempt({
+          userId: sessionResult.user.userId,
+          blueprintId,
+          idempotencyKey,
+        });
+
+        if (!result.ok) {
+          return new Response(
+            JSON.stringify({ ok: false, error: result.error }),
+            { status: result.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            mode: 'active',
+            ...result.data,
+          }),
+          { status: result.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+        );
+      }
+
+      // 3. GET /api/exams/history
+      if (url.pathname === '/api/exams/history') {
+        if (request.method !== 'GET') {
+          return new Response(
+            JSON.stringify({ ok: false, error: 'Method Not Allowed' }),
+            {
+              status: 405,
+              headers: {
+                'Content-Type': 'application/json',
+                'Allow': 'GET',
+                'Cache-Control': 'no-store',
+              },
+            }
+          );
+        }
+
+        const sessionResult = await resolveAuthenticatedExamUser();
+        if (!sessionResult) {
+          return new Response(
+            JSON.stringify({ ok: false, error: 'Unauthorized: Active session required to view exam history' }),
+            { status: 401, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+          );
+        }
+
+        const requestedUserId = url.searchParams.get('userId')?.trim() || '';
+        if (requestedUserId && requestedUserId !== sessionResult.user.userId) {
+          return new Response(
+            JSON.stringify({ ok: false, error: 'Forbidden: Cannot view another user exam history' }),
+            { status: 403, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+          );
+        }
+
+        const rawLimit = url.searchParams.get('limit');
+        const limit = rawLimit !== null ? Number(rawLimit) : 20;
+        const history = await examRepo.getUserExamHistory(
+          sessionResult.user.userId,
+          Number.isFinite(limit) ? limit : 20
+        );
+
+        return new Response(
+          JSON.stringify({ ok: true, ...history }),
+          { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+        );
+      }
+
+      // 4. Attempt-specific routes:
+      //    - GET /api/exams/attempts/:attemptId
+      //    - PUT/POST /api/exams/attempts/:attemptId/answer
+      //    - POST /api/exams/attempts/:attemptId/submit
+      const answerMatch = /^\/api\/exams\/attempts\/([^/]+)\/answer$/.exec(url.pathname);
+      if (answerMatch) {
+        if (request.method !== 'PUT' && request.method !== 'POST') {
+          return new Response(
+            JSON.stringify({ ok: false, error: 'Method Not Allowed' }),
+            {
+              status: 405,
+              headers: {
+                'Content-Type': 'application/json',
+                'Allow': 'PUT, POST',
+                'Cache-Control': 'no-store',
+              },
+            }
+          );
+        }
+
+        const attemptId = decodeURIComponent(answerMatch[1]).trim();
+        let body: Record<string, unknown> = {};
+        try {
+          body = (await request.json()) as Record<string, unknown>;
+        } catch {
+          return new Response(
+            JSON.stringify({ ok: false, error: 'ساختار درخواست نامعتبر است.' }),
+            { status: 400, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+          );
+        }
+
+        const sessionResult = await resolveAuthenticatedExamUser(body);
+        if (!sessionResult) {
+          return new Response(
+            JSON.stringify({ ok: false, error: 'Unauthorized' }),
+            { status: 401, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+          );
+        }
+
+        const questionId = typeof body.questionId === 'string' ? body.questionId.trim() : '';
+        const selectedIndex =
+          body.selectedIndex === null
+            ? null
+            : typeof body.selectedIndex === 'number'
+            ? body.selectedIndex
+            : undefined;
+        const isFlagged = typeof body.isFlagged === 'boolean' ? body.isFlagged : undefined;
+        const timeSpentSeconds =
+          typeof body.timeSpentSeconds === 'number' ? body.timeSpentSeconds : undefined;
+        const clientUpdatedAt =
+          typeof body.clientUpdatedAt === 'string' && body.clientUpdatedAt.trim()
+            ? body.clientUpdatedAt.trim()
+            : undefined;
+
+        const saveResult = await examRepo.saveAnswer({
+          attemptId,
+          userId: sessionResult.user.userId,
+          questionId,
+          selectedIndex,
+          isFlagged,
+          timeSpentSeconds,
+          clientUpdatedAt,
+        });
+
+        if (!saveResult.ok) {
+          return new Response(
+            JSON.stringify({ ok: false, code: saveResult.code, error: saveResult.error }),
+            { status: saveResult.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            answer: saveResult.answer,
+            remainingSeconds: saveResult.remainingSeconds,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+        );
+      }
+
+      const submitMatch = /^\/api\/exams\/attempts\/([^/]+)\/submit$/.exec(url.pathname);
+      if (submitMatch) {
+        if (request.method !== 'POST') {
+          return new Response(
+            JSON.stringify({ ok: false, error: 'Method Not Allowed' }),
+            {
+              status: 405,
+              headers: {
+                'Content-Type': 'application/json',
+                'Allow': 'POST',
+                'Cache-Control': 'no-store',
+              },
+            }
+          );
+        }
+
+        const attemptId = decodeURIComponent(submitMatch[1]).trim();
+        let body: Record<string, unknown> = {};
+        try {
+          const text = await request.text();
+          if (text && text.trim()) {
+            body = JSON.parse(text) as Record<string, unknown>;
+          }
+        } catch {
+          return new Response(
+            JSON.stringify({ ok: false, error: 'ساختار درخواست نامعتبر است.' }),
+            { status: 400, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+          );
+        }
+
+        const sessionResult = await resolveAuthenticatedExamUser(body);
+        if (!sessionResult) {
+          return new Response(
+            JSON.stringify({ ok: false, error: 'Unauthorized' }),
+            { status: 401, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+          );
+        }
+
+        const submitResult = await examRepo.submitAttempt({
+          attemptId,
+          userId: sessionResult.user.userId,
+          answers: Array.isArray(body.answers) ? (body.answers as any) : undefined,
+          durationSecondsUsed:
+            typeof body.durationSecondsUsed === 'number' ? body.durationSecondsUsed : undefined,
+        });
+
+        if (!submitResult.ok) {
+          return new Response(
+            JSON.stringify({ ok: false, error: submitResult.error }),
+            { status: submitResult.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            mode: 'submitted',
+            ...submitResult.data,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+        );
+      }
+
+      const getAttemptMatch = /^\/api\/exams\/attempts\/([^/]+)$/.exec(url.pathname);
+      if (getAttemptMatch && getAttemptMatch[1] !== 'start') {
+        if (request.method !== 'GET') {
+          return new Response(
+            JSON.stringify({ ok: false, error: 'Method Not Allowed' }),
+            {
+              status: 405,
+              headers: {
+                'Content-Type': 'application/json',
+                'Allow': 'GET',
+                'Cache-Control': 'no-store',
+              },
+            }
+          );
+        }
+
+        const attemptId = decodeURIComponent(getAttemptMatch[1]).trim();
+        const sessionResult = await resolveAuthenticatedExamUser();
+        if (!sessionResult) {
+          return new Response(
+            JSON.stringify({ ok: false, error: 'Unauthorized' }),
+            { status: 401, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+          );
+        }
+
+        const loaded = await examRepo.getAttemptForUser(attemptId, sessionResult.user.userId);
+        if (!loaded.ok) {
+          return new Response(
+            JSON.stringify({ ok: false, error: loaded.error }),
+            { status: loaded.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            mode: loaded.mode,
+            ...loaded.data,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+        );
+      }
+
+      return new Response(
+        JSON.stringify({ ok: false, error: 'Not Found' }),
+        { status: 404, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+      );
+    }
+
+    // Explicit JSON 404 for any unmatched /api/* route (never fall through to SPA HTML)
+    if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
+      return new Response(
+        JSON.stringify({ ok: false, error: 'Not Found' }),
+        {
+          status: 404,
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store',
+          },
+        }
+      );
+    }
+
     // Pass-through to static assets (SPA) if ASSETS binding is present
     if (env.ASSETS) {
-      return env.ASSETS.fetch(request);
+      const assetResponse = await env.ASSETS.fetch(request);
+      if (
+        assetResponse.status === 404 &&
+        request.method === 'GET' &&
+        !url.pathname.split('/').pop()?.includes('.')
+      ) {
+        const indexUrl = new URL('/index.html', url.origin);
+        return env.ASSETS.fetch(new Request(indexUrl.toString(), request));
+      }
+      return assetResponse;
     }
 
     // Default info response for worker entry point
     return new Response(
       JSON.stringify({
         name: 'psychomaster-worker',
-        version: 'phase-4e',
-        endpoints: ['/api/d1/health', '/api/d1-health']
+        version: 'phase-10b',
+        endpoints: [
+          '/api/health',
+          '/api/d1/health',
+          '/api/d1-health',
+          '/api/auth/nonce',
+          '/api/auth/google',
+          '/api/auth/me',
+          '/api/auth/merge',
+          '/api/auth/logout',
+          '/api/auth/profile',
+          '/api/user/sync',
+          '/api/leaderboard',
+          '/api/leaderboard/submit',
+          '/api/quiz/bank',
+          '/api/quiz/bank/generate',
+          '/api/exams/blueprints',
+          '/api/exams/attempts/start',
+          '/api/exams/attempts/:attemptId',
+          '/api/exams/attempts/:attemptId/answer',
+          '/api/exams/attempts/:attemptId/submit',
+          '/api/exams/history',
+          '/api/ai/mentor',
+          '/api/ai/mentor/stream',
+          '/api/ai/adaptive-plan',
+          '/api/analytics/ping',
+          '/api/analytics/track',
+          '/api/analytics/stats',
+          '/api/reports/student-summary',
+        ],
       }),
       {
         status: 200,
         headers: {
           'Content-Type': 'application/json',
-          'Cache-Control': 'no-store'
-        }
+          'Cache-Control': 'no-store',
+        },
       }
     );
-  }
+  },
 };

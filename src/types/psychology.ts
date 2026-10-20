@@ -122,6 +122,9 @@ export interface StageCompletionRecord {
   score: number;
   totalQuestions: number;
   xpEarned: number;
+  verified?: boolean;
+  source?: 'online-verified' | 'offline-local';
+  stageAnswers?: Record<string, unknown>;
 }
 
 export interface UserProgress {

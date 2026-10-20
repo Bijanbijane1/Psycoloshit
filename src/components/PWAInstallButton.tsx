@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
 import { usePWAInstall } from '../utils/usePWAInstall';
-import { Download, Share2, PlusSquare, X, CheckCircle2, WifiOff } from 'lucide-react';
-import { DuoMascot } from './DuoMascot';
+import { Download, Share2, PlusSquare, X, CheckCircle2, WifiOff, Smartphone } from 'lucide-react';
 import { playDuoSound } from '../utils/duoAudio';
 
-export const PWAInstallButton: React.FC = () => {
+interface PWAInstallButtonProps {
+  variant?: 'compact' | 'sheet';
+}
+
+export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ variant = 'compact' }) => {
   const { isInstallable, isInstalled, isIOS, isOffline, install } = usePWAInstall();
   const [showIOSGuide, setShowIOSGuide] = useState(false);
 
@@ -12,8 +15,8 @@ export const PWAInstallButton: React.FC = () => {
   if (isInstalled) {
     if (isOffline) {
       return (
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs font-black shadow-2xs">
-          <WifiOff className="w-3.5 h-3.5 text-amber-600" />
+        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#FFF0C8] border border-[#E5A33D]/50 text-[#5C3D0E] text-xs font-extrabold min-h-[44px]">
+          <WifiOff className="w-3.5 h-3.5 text-[#C98A27]" />
           <span>آفلاین (کتابخانه در دسترس)</span>
         </div>
       );
@@ -35,74 +38,94 @@ export const PWAInstallButton: React.FC = () => {
 
   return (
     <>
-      <button
-        onClick={handleInstallClick}
-        className="duo-btn-green px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-xs focus-visible:ring-2 focus-visible:ring-[#58CC02]"
-        title="نصب اپلیکیشن روی دستگاه (PWA آفلاین)"
-        aria-label="نصب اپلیکیشن روی گوشی یا دسکتاپ"
-      >
-        <Download className="w-3.5 h-3.5" />
-        <span className="hidden sm:inline">نصب برنامه آفلاین</span>
-        <span className="sm:hidden">نصب</span>
-      </button>
+      {variant === 'sheet' ? (
+        <button
+          onClick={handleInstallClick}
+          className="w-full py-2.5 px-3.5 rounded-xl bg-[#DDF3E9]/70 hover:bg-[#DDF3E9] text-[#134E4A] text-xs font-extrabold flex items-center justify-between cursor-pointer border border-[#149D9A]/35 min-h-[48px] transition-colors"
+          title="نصب وب‌اپلیکیشن روان‌مستر (نسخه آفلاین)"
+          aria-label="نصب وب‌اپلیکیشن روان‌مستر روی دستگاه"
+        >
+          <div className="flex items-center gap-2.5">
+            <Download className="w-4 h-4 text-[#149D9A] shrink-0" />
+            <span>نصب نسخه وب‌اپلیکیشن (دسترسی آفلاین)</span>
+          </div>
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-white text-[#149D9A] border border-[#149D9A]/25">
+            نصب PWA
+          </span>
+        </button>
+      ) : (
+        <button
+          onClick={handleInstallClick}
+          className="editorial-btn-leaf px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer min-h-[44px] focus-visible:ring-2 focus-visible:ring-[#389D77]"
+          title="نصب اپلیکیشن روی دستگاه (PWA آفلاین)"
+          aria-label="نصب اپلیکیشن روی گوشی یا دسکتاپ"
+        >
+          <Download className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">نصب برنامه آفلاین</span>
+          <span className="sm:hidden">نصب</span>
+        </button>
+      )}
 
       {/* iOS / General Safari Install Guidance Modal */}
       {showIOSGuide && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-2xs animate-fadeIn select-none">
-          <div className="bg-white border-2 border-b-6 border-slate-300 rounded-3xl p-6 max-w-sm w-full text-right shadow-2xl relative animate-scaleUp">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#24243B]/60 backdrop-blur-xs animate-fadeIn select-none">
+          <div className="bg-white border border-[#E5E1EB] rounded-3xl p-5 sm:p-6 max-w-sm w-full text-right shadow-2xl relative animate-scaleUp">
             <button
               onClick={() => setShowIOSGuide(false)}
-              className="absolute top-4 left-4 p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+              className="absolute top-3.5 left-3.5 p-2 rounded-xl text-[#69697E] hover:text-[#24243B] hover:bg-[#F7F5F0] transition-colors cursor-pointer min-w-[44px] min-h-[44px] flex items-center justify-center"
+              aria-label="بستن راهنمای نصب"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center gap-3 mb-4">
-              <DuoMascot mood="happy" size={48} animate={false} />
+            <div className="flex items-center gap-3 mb-4 pl-10">
+              <div className="w-12 h-12 rounded-2xl bg-[#EAE4FF] border border-[#7056D8]/25 text-[#7056D8] flex items-center justify-center shrink-0">
+                <Smartphone className="w-6 h-6" />
+              </div>
               <div>
-                <h3 className="text-base font-black text-slate-800">
-                  نصب «روان‌لینگو» روی صفحه اصلی
+                <h3 className="text-sm sm:text-base font-black text-[#24243B]">
+                  نصب «روان‌مستر» روی صفحه اصلی
                 </h3>
-                <span className="text-[11px] font-bold text-slate-400">
-                  دسترسی همیشگی و ۱۰۰٪ آفلاین
+                <span className="text-[11px] font-bold text-[#69697E]">
+                  دسترسی سریع و مطالعه ۱۰۰٪ آفلاین
                 </span>
               </div>
             </div>
 
-            <div className="space-y-3 my-4 text-xs font-bold text-slate-700 leading-relaxed bg-slate-50 p-4 rounded-2xl border border-slate-200">
+            <div className="space-y-3 my-4 text-xs font-bold text-[#24243B] leading-relaxed bg-[#F7F5F0] p-4 rounded-2xl border border-[#E5E1EB]">
               <div className="flex items-start gap-2.5">
-                <span className="w-6 h-6 rounded-full bg-[#58CC02] text-white flex items-center justify-center text-xs font-black shrink-0">
+                <span className="w-6 h-6 rounded-full bg-[#7056D8] text-white flex items-center justify-center text-xs font-extrabold shrink-0">
                   ۱
                 </span>
                 <p>
-                  در نوار پایین یا بالای مرورگر دکمه <span className="font-black text-slate-900">Share (اشتراک‌گذاری)</span> را انتخاب کنید:
-                  <Share2 className="w-4 h-4 inline-block mx-1 text-sky-600" />
+                  در نوار مرورگر دکمه <span className="font-extrabold text-[#36345F]">Share (اشتراک‌گذاری)</span> را انتخاب کنید:
+                  <Share2 className="w-4 h-4 inline-block mx-1 text-[#3976E4]" />
                 </p>
               </div>
 
               <div className="flex items-start gap-2.5">
-                <span className="w-6 h-6 rounded-full bg-[#58CC02] text-white flex items-center justify-center text-xs font-black shrink-0">
+                <span className="w-6 h-6 rounded-full bg-[#7056D8] text-white flex items-center justify-center text-xs font-extrabold shrink-0">
                   ۲
                 </span>
                 <p>
-                  گزینه <span className="font-black text-slate-900">Add to Home Screen (افزودن به صفحه اصلی)</span> را بزنید:
-                  <PlusSquare className="w-4 h-4 inline-block mx-1 text-emerald-600" />
+                  گزینه <span className="font-extrabold text-[#36345F]">Add to Home Screen (افزودن به صفحه اصلی)</span> را بزنید:
+                  <PlusSquare className="w-4 h-4 inline-block mx-1 text-[#149D9A]" />
                 </p>
               </div>
 
               <div className="flex items-start gap-2.5">
-                <span className="w-6 h-6 rounded-full bg-[#58CC02] text-white flex items-center justify-center text-xs font-black shrink-0">
+                <span className="w-6 h-6 rounded-full bg-[#7056D8] text-white flex items-center justify-center text-xs font-extrabold shrink-0">
                   ۳
                 </span>
                 <p>
-                  حالا آیکون روان‌لینگو در لیست برنامه‌های شما قرار دارد و بدون نیاز به اینترنت اجرا می‌شود!
+                  اکنون آیکون روان‌مستر در صفحه اصلی دستگاه شما قرار دارد و بدون نیاز به اینترنت قابل استفاده است.
                 </p>
               </div>
             </div>
 
             <button
               onClick={() => setShowIOSGuide(false)}
-              className="duo-btn-green w-full py-3 rounded-2xl text-xs font-black cursor-pointer shadow-xs flex items-center justify-center gap-1.5"
+              className="editorial-btn-primary w-full py-3 rounded-2xl text-xs font-extrabold cursor-pointer flex items-center justify-center gap-1.5 min-h-[48px]"
             >
               <CheckCircle2 className="w-4 h-4" />
               <span>متوجه شدم</span>
@@ -113,3 +136,4 @@ export const PWAInstallButton: React.FC = () => {
     </>
   );
 };
+

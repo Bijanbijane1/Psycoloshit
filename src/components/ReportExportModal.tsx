@@ -1,21 +1,37 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  FileText,
   Printer,
   Download,
   X,
-  Award,
-  CheckCircle2,
-  Clock,
-  Target,
-  Flame,
   ShieldCheck,
+  AlertTriangle,
   GraduationCap,
 } from 'lucide-react';
 import { UserProgress, Section } from '../types/psychology';
 import { calculateUserAnalytics } from '../utils/adaptiveEngine';
 import { getUserDisplayName } from '../utils/cloudSync';
 import { playDuoSound } from '../utils/duoAudio';
+
+interface ServerStudentReport {
+  studentName: string;
+  generatedAt: string;
+  verified: boolean;
+  isServerVerified: boolean;
+  verificationStatus: 'server-verified' | 'unverified-client-reported';
+  dataSource: 'server-authoritative' | 'client-self-reported';
+  verifiedXp: number;
+  verifiedStagesCount: number;
+  overallMastery: string;
+  accuracyRate: string;
+  totalStudyMinutes: number;
+  streakDays: number;
+  completedChaptersCount: number;
+  unlockedBadgesCount: number;
+  levelStatus: string;
+  weakestChapters: string[];
+  recommendation: string;
+  verificationStamp: string;
+}
 
 interface ReportExportModalProps {
   isOpen: boolean;
@@ -30,10 +46,63 @@ export const ReportExportModal: React.FC<ReportExportModalProps> = ({
   progress,
   sections,
 }) => {
-  const [studentName, setStudentName] = useState<string>(getUserDisplayName());
+  const [studentName] = useState<string>(getUserDisplayName());
+  const [serverReport, setServerReport] = useState<ServerStudentReport | null>(null);
   const stats = calculateUserAnalytics(progress);
 
+  const allChapters = sections.flatMap((s) => s.chapters);
+  const weakChapterTitles = stats.weakestChapterIds.map((id) => {
+    const f = allChapters.find((c) => c.id === id);
+    return f ? f.title : id;
+  });
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+
+    fetch('/api/reports/student-summary', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userName: studentName,
+        stats: {
+          overallMastery: stats.overallMastery,
+          accuracyRate: stats.accuracyRate,
+        },
+        progress: {
+          totalStudyMinutes: progress.totalStudyMinutes,
+          streakDays: progress.streakDays,
+          completedChapters: progress.completedChapters,
+          unlockedBadgeIds: progress.unlockedBadgeIds || [],
+        },
+        weakestChapters: weakChapterTitles,
+      }),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => {
+        if (!cancelled && json?.report) {
+          setServerReport(json.report as ServerStudentReport);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setServerReport(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, studentName, progress]);
+
   if (!isOpen) return null;
+
+  const isVerified = Boolean(serverReport?.verified);
+  const displayStudentName = serverReport?.studentName || studentName;
+  const displayAccuracy = serverReport?.accuracyRate || `${stats.accuracyRate}٪`;
+  const displayStudyMinutes = serverReport?.totalStudyMinutes ?? progress.totalStudyMinutes;
+  const displayStreakDays = serverReport?.streakDays ?? progress.streakDays;
+  const displayCompletedChapters =
+    serverReport?.completedChaptersCount ?? progress.completedChapters.length;
 
   const handlePrint = () => {
     playDuoSound('click');
@@ -43,15 +112,25 @@ export const ReportExportModal: React.FC<ReportExportModalProps> = ({
   const handleDownloadJSON = () => {
     playDuoSound('click');
     const data = {
-      title: 'کارنامه تحصیلی رسمی سامانه روان‌شناسی روان‌لینگو',
-      studentName,
-      issuedAt: new Date().toLocaleDateString('fa-IR'),
-      stats,
-      progress: {
-        streakDays: progress.streakDays,
-        totalStudyMinutes: progress.totalStudyMinutes,
-        completedChaptersCount: progress.completedChapters.length,
-        unlockedBadgesCount: (progress.unlockedBadgeIds || []).length,
+      title: isVerified
+        ? 'کارنامه تحصیلی تأییدشده سامانه روان‌شناسی روان‌لینگو'
+        : 'پیش‌نمایش خوداظهاری محلی (تأییدنشده توسط سرور) — روان‌لینگو',
+      verified: isVerified,
+      verificationStatus: serverReport?.verificationStatus || 'unverified-client-reported',
+      dataSource: serverReport?.dataSource || 'client-self-reported',
+      verificationStamp:
+        serverReport?.verificationStamp ||
+        'گزارش خوداظهاری محلی — تأییدنشده توسط سرور (Unverified Client-Supplied Data)',
+      studentName: displayStudentName,
+      issuedAt: serverReport?.generatedAt || new Date().toLocaleDateString('fa-IR'),
+      metrics: {
+        accuracyRate: displayAccuracy,
+        overallMastery: serverReport?.overallMastery || `${stats.overallMastery}٪`,
+        totalStudyMinutes: displayStudyMinutes,
+        streakDays: displayStreakDays,
+        completedChaptersCount: displayCompletedChapters,
+        verifiedXp: serverReport?.verifiedXp ?? 0,
+        verifiedStagesCount: serverReport?.verifiedStagesCount ?? 0,
       },
     };
 
@@ -59,16 +138,10 @@ export const ReportExportModal: React.FC<ReportExportModalProps> = ({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `PsychoMaster_Report_${studentName}_${Date.now()}.json`;
+    a.download = `PsychoMaster_Report_${displayStudentName}_${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
-
-  const allChapters = sections.flatMap((s) => s.chapters);
-  const weakChapterTitles = stats.weakestChapterIds.map((id) => {
-    const f = allChapters.find((c) => c.id === id);
-    return f ? f.title : id;
-  });
 
   return (
     <div
@@ -88,10 +161,12 @@ export const ReportExportModal: React.FC<ReportExportModalProps> = ({
             </div>
             <div>
               <h2 className="text-base sm:text-lg font-black text-slate-800">
-                کارنامه تحصیلی رسمی و گواهی پیشرفت
+                کارنامه تحصیلی و گزارش پیشرفت
               </h2>
               <p className="text-xs font-bold text-slate-400">
-                گزارش جامع تسلط علمی، مهارت در آزمون‌ها و استمرار مطالعه
+                {isVerified
+                  ? 'بر اساس سوابق تأییدشده در پایگاه داده سرور'
+                  : 'پیش‌نمایش محلی مرورگر (نیازمند ثبت مرحله در سرور جهت تأیید رسمی)'}
               </p>
             </div>
           </div>
@@ -142,17 +217,23 @@ export const ReportExportModal: React.FC<ReportExportModalProps> = ({
                     سامانه هوشمند آموزش روان‌شناسی (روان‌لینگو)
                   </h1>
                   <span className="text-[11px] font-bold text-slate-500">
-                    PsychoMaster Academic Learning & Analytics Certificate
+                    PsychoMaster Academic Learning & Progress Report
                   </span>
                 </div>
               </div>
 
               <div className="text-left sm:text-right flex flex-col items-end">
-                <span className="text-[10px] font-black uppercase text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full">
-                  گواهی رسمی تحصیلی
+                <span
+                  className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full ${
+                    isVerified
+                      ? 'text-emerald-800 bg-emerald-100 border border-emerald-300'
+                      : 'text-amber-800 bg-amber-100 border border-amber-300'
+                  }`}
+                >
+                  {isVerified ? 'تأییدشده در سرور' : 'پیش‌نمایش خوداظهاری محلی'}
                 </span>
                 <span className="text-xs font-bold text-slate-400 mt-1">
-                  تاریخ صدور: {new Date().toLocaleDateString('fa-IR')}
+                  تاریخ صدور: {serverReport?.generatedAt || new Date().toLocaleDateString('fa-IR')}
                 </span>
               </div>
             </div>
@@ -161,16 +242,17 @@ export const ReportExportModal: React.FC<ReportExportModalProps> = ({
             <div className="my-6 p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
               <div>
                 <span className="text-xs font-bold text-slate-400">نام دانشجو / فراگیر:</span>
-                <h3 className="text-lg font-black text-slate-800 mt-0.5">{studentName}</h3>
+                <h3 className="text-lg font-black text-slate-800 mt-0.5">{displayStudentName}</h3>
               </div>
               <div>
-                <span className="text-xs font-bold text-slate-400">سطح احراز صلاحیت:</span>
+                <span className="text-xs font-bold text-slate-400">وضعیت ارزیابی:</span>
                 <h4 className="text-sm font-black text-emerald-700 mt-0.5">
-                  {stats.accuracyRate >= 80
-                    ? 'دانشجوی ممتاز (سطح پیشرفته و کنکوری)'
-                    : stats.accuracyRate >= 60
-                    ? 'تسلط استاندارد رو به رشد'
-                    : 'نیازمند تثبیت سرفصل‌های پایه'}
+                  {serverReport?.levelStatus ||
+                    (stats.accuracyRate >= 80
+                      ? 'پیشرفته (خوداظهاری — تأییدنشده)'
+                      : stats.accuracyRate >= 60
+                      ? 'استاندارد رو به رشد (خوداظهاری — تأییدنشده)'
+                      : 'نیازمند تثبیت سرفصل‌های پایه (خوداظهاری — تأییدنشده)')}
                 </h4>
               </div>
             </div>
@@ -178,26 +260,30 @@ export const ReportExportModal: React.FC<ReportExportModalProps> = ({
             {/* Key Metrics Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
               <div className="p-3.5 rounded-xl border border-slate-200 bg-white text-center">
-                <span className="text-[11px] font-black text-slate-400">درصد کل تسلط</span>
-                <div className="text-2xl font-black text-[#58CC02] mt-1">{stats.accuracyRate}٪</div>
-                <span className="text-[10px] text-slate-400 font-bold">{stats.correctCount} از {stats.totalAttempts} درست</span>
+                <span className="text-[11px] font-black text-slate-400">درصد دقت آزمون</span>
+                <div className="text-2xl font-black text-[#58CC02] mt-1">{displayAccuracy}</div>
+                <span className="text-[10px] text-slate-400 font-bold">
+                  {isVerified
+                    ? `${serverReport?.verifiedStagesCount || 0} مرحله تأییدشده`
+                    : 'پیش‌نمایش محلی مرورگر'}
+                </span>
               </div>
 
               <div className="p-3.5 rounded-xl border border-slate-200 bg-white text-center">
                 <span className="text-[11px] font-black text-slate-400">مدت مطالعه مفید</span>
-                <div className="text-2xl font-black text-[#1CB0F6] mt-1">{progress.totalStudyMinutes} دقیقه</div>
+                <div className="text-2xl font-black text-[#1CB0F6] mt-1">{displayStudyMinutes} دقیقه</div>
                 <span className="text-[10px] text-slate-400 font-bold">جلسات پومودورو و مرور</span>
               </div>
 
               <div className="p-3.5 rounded-xl border border-slate-200 bg-white text-center">
                 <span className="text-[11px] font-black text-slate-400">زنجیره استمرار</span>
-                <div className="text-2xl font-black text-[#FF9600] mt-1">{progress.streakDays} روز</div>
+                <div className="text-2xl font-black text-[#FF9600] mt-1">{displayStreakDays} روز</div>
                 <span className="text-[10px] text-slate-400 font-bold">پشتکار متوالی</span>
               </div>
 
               <div className="p-3.5 rounded-xl border border-slate-200 bg-white text-center">
                 <span className="text-[11px] font-black text-slate-400">دروس گذرانده</span>
-                <div className="text-2xl font-black text-[#CE82FF] mt-1">{progress.completedChapters.length} درس</div>
+                <div className="text-2xl font-black text-[#CE82FF] mt-1">{displayCompletedChapters} درس</div>
                 <span className="text-[10px] text-slate-400 font-bold">از سرفصل‌های مصوب</span>
               </div>
             </div>
@@ -220,21 +306,35 @@ export const ReportExportModal: React.FC<ReportExportModalProps> = ({
                 </div>
               ) : (
                 <p className="text-xs font-bold text-emerald-800">
-                  تمامی سرفصل‌ها با تسلط بالای ۸۰ درصد با موفقیت پشت سر گذاشته شده‌اند.
+                  {serverReport?.recommendation ||
+                    'پیشنهاد می‌شود برای ثبت کارنامه رسمی، مراحل آزمون را تکمیل نمایید.'}
                 </p>
               )}
             </div>
 
-            {/* Official Recommendation & Stamp */}
+            {/* Truthful Verification Stamp */}
             <div className="border-t-2 border-slate-200 pt-5 flex flex-col sm:flex-row items-center justify-between gap-4">
               <div className="flex items-center gap-2 text-xs font-bold text-slate-500">
-                <ShieldCheck className="w-5 h-5 text-emerald-600" />
-                <span>صحت داده‌ها توسط هسته اعتبارسنجی تحصیلی سرور PsychoMaster تأیید می‌گردد.</span>
+                {isVerified ? (
+                  <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0" />
+                ) : (
+                  <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
+                )}
+                <span>
+                  {serverReport?.verificationStamp ||
+                    'گزارش خوداظهاری محلی — تأییدنشده توسط سرور (Unverified Client-Supplied Data)'}
+                </span>
               </div>
 
-              <div className="flex items-center gap-2 text-xs font-black text-slate-700 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-300">
-                <span>مُهر رسمی:</span>
-                <span className="text-purple-700">VERIFIED ACADEMIC RESULT ✓</span>
+              <div
+                className={`flex items-center gap-2 text-xs font-black px-3 py-1.5 rounded-xl border ${
+                  isVerified
+                    ? 'text-emerald-800 bg-emerald-50 border-emerald-300'
+                    : 'text-amber-800 bg-amber-50 border-amber-300'
+                }`}
+              >
+                <span>وضعیت اعتبارسنجی:</span>
+                <span>{isVerified ? 'SERVER-VERIFIED RECORD ✓' : 'UNVERIFIED LOCAL PREVIEW'}</span>
               </div>
             </div>
           </div>

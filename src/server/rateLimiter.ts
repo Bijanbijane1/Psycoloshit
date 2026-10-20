@@ -5,22 +5,31 @@ interface RateLimitRecord {
   resetTime: number;
 }
 
-const requestLogs = new Map<string, RateLimitRecord>();
-
 /**
- * Lightweight in-memory rate limiter middleware
- * @param windowMs Time window in milliseconds
- * @param maxRequests Maximum allowed requests in the time window
- * @param message Custom message returned when limit is exceeded
+ * Hardened rate limiter middleware for Express (dev/Node runtime).
+ * Never allows client-supplied `x-visitor-id` headers to split an IP-based rate-limit bucket.
  */
 export function createRateLimiter(
   windowMs: number = 60000,
   maxRequests: number = 60,
   message: string = 'تعداد درخواست‌ها بیش از حد مجاز است. لطفاً چند لحظه صبر کنید.'
 ) {
+  const requestLogs = new Map<string, RateLimitRecord>();
+
   return (req: Request, res: Response, next: NextFunction) => {
-    const key = (req.ip || 'anonymous') + '_' + (req.headers['x-visitor-id'] || '');
+    const cfIp = String(req.headers['cf-connecting-ip'] || '').trim();
+    const xff = String(req.headers['x-forwarded-for'] || '').split(',')[0]?.trim();
+    const rawIp = cfIp || xff || (req.ip ? String(req.ip).trim() : '');
+    const key = rawIp || String(req.headers['x-visitor-id'] || 'anonymous').trim().slice(0, 64);
     const now = Date.now();
+
+    if (requestLogs.size > 500) {
+      for (const [k, rec] of requestLogs.entries()) {
+        if (now > rec.resetTime) {
+          requestLogs.delete(k);
+        }
+      }
+    }
 
     const record = requestLogs.get(key);
 
@@ -33,9 +42,10 @@ export function createRateLimiter(
     }
 
     if (record.count >= maxRequests) {
-      const waitSeconds = Math.ceil((record.resetTime - now) / 1000);
-      res.setHeader('Retry-After', waitSeconds);
+      const waitSeconds = Math.max(1, Math.ceil((record.resetTime - now) / 1000));
+      res.setHeader('Retry-After', String(waitSeconds));
       return res.status(429).json({
+        ok: false,
         error: message,
         retryAfterSeconds: waitSeconds,
       });
@@ -45,13 +55,3 @@ export function createRateLimiter(
     next();
   };
 }
-
-// Periodic cleanup of expired records every 5 minutes
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, record] of requestLogs.entries()) {
-    if (now > record.resetTime) {
-      requestLogs.delete(key);
-    }
-  }
-}, 300000);

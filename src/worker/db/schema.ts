@@ -264,3 +264,258 @@ export function rowToXpLedgerEntry(row: XpLedgerDbRow): XpLedgerEntry {
     createdAt: row.created_at,
   };
 }
+
+// ==============================================================
+// Phase 10B: Entrance Exam Simulator Domain & Row Models
+// ==============================================================
+
+export type ExamType = 'diagnostic' | 'subject' | 'comprehensive' | 'timed_drill';
+export type ExamAttemptStatus = 'in_progress' | 'submitted' | 'expired' | 'abandoned';
+
+export interface ExamBlueprintSection {
+  id: string;
+  title: string;
+  questionCount: number;
+  weight: number;
+  chapterIds: string[];
+  difficultyMix?: {
+    easy?: number;
+    medium?: number;
+    hard?: number;
+  };
+}
+
+export interface ExamBlueprint {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  examType: ExamType;
+  durationMinutes: number;
+  totalQuestions: number;
+  negativeMarking: boolean;
+  negativeWeight: number;
+  sections: ExamBlueprintSection[];
+  isPublished: boolean;
+  createdAt: string;
+}
+
+export interface ExamBlueprintDbRow {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  exam_type: ExamType;
+  duration_minutes: number;
+  total_questions: number;
+  negative_marking: number;
+  negative_weight: number;
+  sections_json: string;
+  is_published: number;
+  created_at: string;
+}
+
+export interface ExamSectionBreakdown {
+  sectionId: string;
+  sectionTitle: string;
+  weight: number;
+  totalQuestions: number;
+  correctCount: number;
+  wrongCount: number;
+  unansweredCount: number;
+  rawScorePercent: number;
+  chapterIds: string[];
+}
+
+export interface ExamAttemptDbRow {
+  id: string;
+  user_id: string;
+  blueprint_id: string;
+  status: ExamAttemptStatus;
+  started_at: string;
+  expires_at: string;
+  submitted_at?: string | null;
+  duration_seconds_used: number;
+  question_ids_json: string;
+  raw_score_percent?: number | null;
+  weighted_score_percent?: number | null;
+  correct_count: number;
+  wrong_count: number;
+  unanswered_count: number;
+  section_breakdown_json: string;
+  xp_awarded: number;
+  idempotency_key?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExamAttemptAnswerDbRow {
+  attempt_id: string;
+  question_id: string;
+  section_id: string;
+  selected_index?: number | null;
+  is_flagged: number;
+  time_spent_seconds: number;
+  is_correct?: number | null;
+  revision?: number;
+  updated_at: string;
+}
+
+export interface ExamAttemptAnswerRecord {
+  attemptId: string;
+  questionId: string;
+  sectionId: string;
+  selectedIndex: number | null;
+  isFlagged: boolean;
+  timeSpentSeconds: number;
+  isCorrect: boolean | null;
+  revision: number;
+  updatedAt: string;
+}
+
+/**
+ * Active exam question delivered while status === 'in_progress'.
+ * Strictly omits `correctIndex` and `explanation` to prevent pre-submit answer leakage.
+ */
+export interface ExamAttemptQuestionPublic {
+  id: string;
+  questionNumber: number;
+  sectionId: string;
+  sectionTitle: string;
+  chapterId: string;
+  chapterTitle: string;
+  difficulty: 'easy' | 'medium' | 'hard';
+  question: string;
+  options: string[];
+}
+
+/**
+ * Post-submission review question delivered ONLY when status === 'submitted' | 'expired'.
+ */
+export interface ExamAttemptQuestionReview extends ExamAttemptQuestionPublic {
+  correctIndex: number;
+  explanation: string;
+  selectedIndex: number | null;
+  isCorrect: boolean | null;
+  isFlagged: boolean;
+  timeSpentSeconds: number;
+}
+
+export interface ExamAttemptRecord {
+  id: string;
+  userId: string;
+  blueprintId: string;
+  status: ExamAttemptStatus;
+  startedAt: string;
+  expiresAt: string;
+  submittedAt: string | null;
+  durationSecondsUsed: number;
+  questionIds: string[];
+  rawScorePercent: number | null;
+  weightedScorePercent: number | null;
+  correctCount: number;
+  wrongCount: number;
+  unansweredCount: number;
+  sectionBreakdown: ExamSectionBreakdown[];
+  xpAwarded: number;
+  idempotencyKey: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function rowToExamBlueprint(row: ExamBlueprintDbRow): ExamBlueprint {
+  let sections: ExamBlueprintSection[] = [];
+  try {
+    const parsed = JSON.parse(row.sections_json || '[]');
+    if (Array.isArray(parsed)) {
+      sections = parsed;
+    }
+  } catch {
+    sections = [];
+  }
+  return {
+    id: row.id,
+    slug: row.slug,
+    title: row.title,
+    description: row.description,
+    examType: row.exam_type,
+    durationMinutes: Number(row.duration_minutes) || 15,
+    totalQuestions: Number(row.total_questions) || 10,
+    negativeMarking: Boolean(row.negative_marking),
+    negativeWeight: Number(row.negative_weight) || 0,
+    sections,
+    isPublished: Boolean(row.is_published),
+    createdAt: row.created_at || new Date().toISOString(),
+  };
+}
+
+export function rowToExamAttemptRecord(row: ExamAttemptDbRow): ExamAttemptRecord {
+  let questionIds: string[] = [];
+  try {
+    const parsed = JSON.parse(row.question_ids_json || '[]');
+    if (Array.isArray(parsed)) {
+      questionIds = parsed.map(String);
+    }
+  } catch {
+    questionIds = [];
+  }
+
+  let sectionBreakdown: ExamSectionBreakdown[] = [];
+  try {
+    const parsed = JSON.parse(row.section_breakdown_json || '[]');
+    if (Array.isArray(parsed)) {
+      sectionBreakdown = parsed;
+    }
+  } catch {
+    sectionBreakdown = [];
+  }
+
+  return {
+    id: row.id,
+    userId: row.user_id,
+    blueprintId: row.blueprint_id,
+    status: row.status,
+    startedAt: row.started_at,
+    expiresAt: row.expires_at,
+    submittedAt: row.submitted_at ?? null,
+    durationSecondsUsed: Number(row.duration_seconds_used) || 0,
+    questionIds,
+    rawScorePercent:
+      row.raw_score_percent !== null && row.raw_score_percent !== undefined
+        ? Number(row.raw_score_percent)
+        : null,
+    weightedScorePercent:
+      row.weighted_score_percent !== null && row.weighted_score_percent !== undefined
+        ? Number(row.weighted_score_percent)
+        : null,
+    correctCount: Number(row.correct_count) || 0,
+    wrongCount: Number(row.wrong_count) || 0,
+    unansweredCount: Number(row.unanswered_count) || 0,
+    sectionBreakdown,
+    xpAwarded: Number(row.xp_awarded) || 0,
+    idempotencyKey: row.idempotency_key ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function rowToExamAttemptAnswerRecord(row: ExamAttemptAnswerDbRow): ExamAttemptAnswerRecord {
+  return {
+    attemptId: row.attempt_id,
+    questionId: row.question_id,
+    sectionId: row.section_id || 'general',
+    selectedIndex:
+      row.selected_index !== null && row.selected_index !== undefined
+        ? Number(row.selected_index)
+        : null,
+    isFlagged: Boolean(row.is_flagged),
+    timeSpentSeconds: Number(row.time_spent_seconds) || 0,
+    isCorrect:
+      row.is_correct !== null && row.is_correct !== undefined
+        ? Boolean(row.is_correct)
+        : null,
+    revision: Number(row.revision) || 0,
+    updatedAt: row.updated_at || new Date().toISOString(),
+  };
+}
+

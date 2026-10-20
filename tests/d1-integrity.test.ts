@@ -28,7 +28,7 @@ import {
   clearCookieHeader,
 } from '../src/worker/auth.ts';
 import { userSyncManager } from '../src/server/userStore.ts';
-import { verifyRewardSubmission } from '../src/worker/rewards.ts';
+import { verifyRewardSubmission, buildCanonicalStageAnswers } from '../src/worker/rewards.ts';
 import type { D1Database, Env } from '../src/worker/types.ts';
 
 // Helper to create a D1Database mock backed by node:sqlite DatabaseSync
@@ -1218,8 +1218,9 @@ async function runTestSuite() {
       rewardType: 'stage_completion',
       stageNumber: 1,
       stars: 3,
-      score: 6,
-      totalQuestions: 6,
+      score: 10,
+      totalQuestions: 10,
+      stageAnswers: buildCanonicalStageAnswers(1),
       streakDays: 6,
       idempotencyKey: 'evt_test_submit_1',
     }),
@@ -1896,8 +1897,9 @@ async function runTestSuite() {
         rewardType: 'stage_completion',
         stageNumber: 1,
         stars: 3,
-        score: 6,
-        totalQuestions: 6,
+        score: 10,
+        totalQuestions: 10,
+        stageAnswers: buildCanonicalStageAnswers(1),
         xpEarned: 1000,
       }),
     }),
@@ -1923,8 +1925,9 @@ async function runTestSuite() {
         rewardType: 'stage_completion',
         stageNumber: 2,
         stars: 3,
-        score: 6,
-        totalQuestions: 6,
+        score: 10,
+        totalQuestions: 10,
+        stageAnswers: buildCanonicalStageAnswers(2),
       }),
     }),
     authEnv,
@@ -1948,8 +1951,9 @@ async function runTestSuite() {
         rewardType: 'stage_completion',
         stageNumber: 1,
         stars: 3,
-        score: 6,
-        totalQuestions: 6,
+        score: 10,
+        totalQuestions: 10,
+        stageAnswers: buildCanonicalStageAnswers(1),
         idempotencyKey: 'client_supplied_random_key_1',
       }),
     }),
@@ -1978,8 +1982,9 @@ async function runTestSuite() {
         rewardType: 'stage_completion',
         stageNumber: 1,
         stars: 3,
-        score: 6,
-        totalQuestions: 6,
+        score: 10,
+        totalQuestions: 10,
+        stageAnswers: buildCanonicalStageAnswers(1),
         idempotencyKey: 'brand_new_client_key_to_bypass_idempotency',
       }),
     }),
@@ -2008,9 +2013,10 @@ async function runTestSuite() {
         userId: s12AuthUserId,
         rewardType: 'stage_completion',
         stageNumber: 2,
-        stars: 2,
-        score: 5,
-        totalQuestions: 6,
+        stars: 3,
+        score: 10,
+        totalQuestions: 10,
+        stageAnswers: buildCanonicalStageAnswers(2),
       }),
     }),
     authEnv,
@@ -2119,8 +2125,9 @@ async function runTestSuite() {
         rewardType: 'stage_completion',
         stageNumber: 1,
         stars: 3,
-        score: 6,
-        totalQuestions: 6,
+        score: 10,
+        totalQuestions: 10,
+        stageAnswers: buildCanonicalStageAnswers(1),
       }),
     }),
     authEnv,
@@ -2144,6 +2151,7 @@ async function runTestSuite() {
         userId: s12OtherUserId,
         rewardType: 'stage_completion',
         stageNumber: 1,
+        stageAnswers: buildCanonicalStageAnswers(1),
       }),
     }),
     authEnv,
@@ -2210,8 +2218,9 @@ async function runTestSuite() {
         rewardType: 'stage_completion',
         stageNumber: 1,
         stars: 3,
-        score: 6,
-        totalQuestions: 6,
+        score: 10,
+        totalQuestions: 10,
+        stageAnswers: buildCanonicalStageAnswers(1),
       }),
     }),
     authEnv,
@@ -2258,8 +2267,8 @@ async function runTestSuite() {
           xp: 500000,
           totalStudyMinutes: 999999,
           completedStages: {
-            1: { stageNumber: 1, completedAt: new Date().toISOString(), stars: 3, score: 6, totalQuestions: 6, xpEarned: 99999 },
-            50: { stageNumber: 50, completedAt: new Date().toISOString(), stars: 3, score: 6, totalQuestions: 6, xpEarned: 99999 },
+            1: { stageNumber: 1, completedAt: new Date().toISOString(), stars: 3, score: 10, totalQuestions: 10, xpEarned: 99999 },
+            50: { stageNumber: 50, completedAt: new Date().toISOString(), stars: 3, score: 10, totalQuestions: 10, xpEarned: 99999 },
           },
         },
       }),
@@ -2296,7 +2305,15 @@ async function runTestSuite() {
   );
 
   const expValidStage1 = verifyRewardSubmission(
-    { userId: expGuestSync.userId, rewardType: 'stage_completion', stageNumber: 1, stars: 3, score: 6, totalQuestions: 6 },
+    {
+      userId: expGuestSync.userId,
+      rewardType: 'stage_completion',
+      stageNumber: 1,
+      stars: 3,
+      score: 10,
+      totalQuestions: 10,
+      stageAnswers: buildCanonicalStageAnswers(1),
+    },
     { verifiedCompletedStages: expVerifiedStagesBefore }
   );
   assert(
@@ -2318,6 +2335,1400 @@ async function runTestSuite() {
     'Express userSyncManager records verified Stage 1 completion in ledger and awards 15 XP'
   );
 
+  // ---------------------------------------------------------------
+  // 13. PHASE 6C.1: STAGE COMPLETION ACTIVITY VERIFICATION & ANTI-FARMING
+  // ---------------------------------------------------------------
+  console.log('\nTest Suite 13: Phase 6C.1 Stage Completion Activity Verification');
+
+  const s13UserRes = await userRepo.createOrUpdateGoogleUser({
+    googleId: 'google_sub_phase6c1_auditor',
+    email: 'phase6c1.auditor@tehran.ac.ir',
+    name: 'ممیز مرحله ۶ج.۱',
+  });
+  const s13UserId = s13UserRes.user.userId;
+  const s13Token = generateSessionToken();
+  await userRepo.createSession(s13UserId, await hashSessionToken(s13Token));
+
+  // 13.1. Stage 1 submission WITH ONLY metadata (no stageAnswers) is rejected (400, 0 XP)
+  const metadataOnlyStage1Res = await workerDefault.fetch(
+    new Request('http://localhost/api/leaderboard/submit', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: `session_token=${s13Token}`,
+      },
+      body: JSON.stringify({
+        userId: s13UserId,
+        rewardType: 'stage_completion',
+        stageNumber: 1,
+        stars: 3,
+        score: 10,
+        totalQuestions: 10,
+      }),
+    }),
+    authEnv,
+    mockCtx
+  );
+  const s13AfterMetadataOnly = (await userRepo.getUserById(s13UserId))!;
+  assert(
+    metadataOnlyStage1Res.status === 400 && s13AfterMetadataOnly.xp === 0,
+    'Stage 1 claim with metadata only (no stageAnswers) is rejected (400, 0 XP)'
+  );
+
+  // 13.2. Stage 1 submission with incomplete stageAnswers (missing questions) is rejected (400, 0 XP)
+  const partialAnswers = { ...buildCanonicalStageAnswers(1) };
+  delete partialAnswers['s1-stage-1-q10'];
+  const partialStage1Res = await workerDefault.fetch(
+    new Request('http://localhost/api/leaderboard/submit', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: `session_token=${s13Token}`,
+      },
+      body: JSON.stringify({
+        userId: s13UserId,
+        rewardType: 'stage_completion',
+        stageNumber: 1,
+        stars: 3,
+        score: 10,
+        totalQuestions: 10,
+        stageAnswers: partialAnswers,
+      }),
+    }),
+    authEnv,
+    mockCtx
+  );
+  assert(
+    partialStage1Res.status === 400 && (await userRepo.getUserById(s13UserId))!.xp === 0,
+    'Stage 1 claim with incomplete stageAnswers (missing question s1-stage-1-q10) is rejected (400, 0 XP)'
+  );
+
+  // 13.3. Stage 1 submission with failing answers (e.g., 2/10 correct < 6/10 minimum passing threshold) is rejected (400, 0 XP)
+  const failingAnswers: Record<string, unknown> = {
+    's1-stage-1-q1': 1, // correct
+    's1-stage-1-q2': true, // correct
+    's1-stage-1-q3': true, // wrong (expected false)
+    's1-stage-1-q4': 'تصادفی', // wrong (expected ذهنی)
+    's1-stage-1-q5': ['p1'], // wrong (incomplete match_pairs)
+    's1-stage-1-q6': 2, // wrong (expected 0)
+    's1-stage-1-q7': 3, // wrong (expected 0)
+    's1-stage-1-q8': true, // wrong (expected false)
+    's1-stage-1-q9': 'مجازات', // wrong (expected پیش‌بینی)
+    's1-stage-1-q10': 2, // wrong (expected 0)
+  };
+  const failingStage1Res = await workerDefault.fetch(
+    new Request('http://localhost/api/leaderboard/submit', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: `session_token=${s13Token}`,
+      },
+      body: JSON.stringify({
+        userId: s13UserId,
+        rewardType: 'stage_completion',
+        stageNumber: 1,
+        stars: 3,
+        score: 10, // Client falsely claims 10/10!
+        totalQuestions: 10,
+        stageAnswers: failingAnswers,
+      }),
+    }),
+    authEnv,
+    mockCtx
+  );
+  assert(
+    failingStage1Res.status === 400 && (await userRepo.getUserById(s13UserId))!.xp === 0,
+    'Stage 1 claim with failing answers (2/10 correct) is rejected even when client claims score: 10 (400, 0 XP)'
+  );
+
+  // 13.4. Automated loop attempting to farm Stages 1..100 without valid answers awards 0 XP
+  let loopAwardedCount = 0;
+  for (let stNum = 1; stNum <= 10; stNum++) {
+    const res = await workerDefault.fetch(
+      new Request('http://localhost/api/leaderboard/submit', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Cookie: `session_token=${s13Token}`,
+        },
+        body: JSON.stringify({
+          userId: s13UserId,
+          rewardType: 'stage_completion',
+          stageNumber: stNum,
+          stars: 3,
+          score: 10,
+          totalQuestions: 10,
+        }),
+      }),
+      authEnv,
+      mockCtx
+    );
+    if (res.status === 200) loopAwardedCount++;
+  }
+  assert(
+    loopAwardedCount === 0 && (await userRepo.getUserById(s13UserId))!.xp === 0,
+    'Automated stage-loop exploit without verified stageAnswers is completely blocked (0 stages awarded, 0 XP)'
+  );
+
+  // 13.5. Stage 1 submission with passing answers (8/10 correct -> 2 mistakes -> 2 stars) succeeds,
+  // awards canonical 15 XP, and overrides client-inflated score/stars with server-computed score=8, stars=2
+  const passingWith2Mistakes: Record<string, unknown> = {
+    ...buildCanonicalStageAnswers(1)!,
+    's1-stage-1-q7': 2, // 1st mistake
+    's1-stage-1-q10': 3, // 2nd mistake
+  };
+  const verifiedPassStage1Res = await workerDefault.fetch(
+    new Request('http://localhost/api/leaderboard/submit', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: `session_token=${s13Token}`,
+      },
+      body: JSON.stringify({
+        userId: s13UserId,
+        rewardType: 'stage_completion',
+        stageNumber: 1,
+        stars: 3, // Client claims 3 stars despite 2 mistakes
+        score: 10, // Client claims 10/10 despite 2 mistakes
+        totalQuestions: 10,
+        stageAnswers: passingWith2Mistakes,
+      }),
+    }),
+    authEnv,
+    mockCtx
+  );
+  const verifiedPassStage1Json = (await verifiedPassStage1Res.json()) as any;
+  const persistedStage1Record = verifiedPassStage1Json.profile?.completedStages?.['1'];
+  assert(
+    verifiedPassStage1Res.status === 200 &&
+      verifiedPassStage1Json.applied === true &&
+      verifiedPassStage1Json.awardedXp === 15 &&
+      verifiedPassStage1Json.updatedXp === 15 &&
+      persistedStage1Record?.score === 8 &&
+      persistedStage1Record?.stars === 2 &&
+      persistedStage1Record?.totalQuestions === 10,
+    'Verified Stage 1 submission (8/10 correct) awards 15 XP and persists server-computed score=8 and stars=2 instead of client-claimed 10/3'
+  );
+
+  // 13.6. Stage 2 submission with valid answers before Stage 1 is completed is tested on a fresh user (rejected 400),
+  // and on s13UserId (who just completed Stage 1) succeeds and awards 15 XP
+  const s13Stage2SuccessRes = await workerDefault.fetch(
+    new Request('http://localhost/api/leaderboard/submit', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: `session_token=${s13Token}`,
+      },
+      body: JSON.stringify({
+        userId: s13UserId,
+        rewardType: 'stage_completion',
+        stageNumber: 2,
+        stageAnswers: buildCanonicalStageAnswers(2),
+      }),
+    }),
+    authEnv,
+    mockCtx
+  );
+  const s13Stage2SuccessJson = (await s13Stage2SuccessRes.json()) as any;
+  assert(
+    s13Stage2SuccessRes.status === 200 &&
+      s13Stage2SuccessJson.applied === true &&
+      s13Stage2SuccessJson.updatedXp === 30,
+    'Verified Stage 2 submission succeeds after Stage 1 is verified and brings total XP to 30'
+  );
+
+  // ---------------------------------------------------------------
+  // 14. PHASE 6D: CLOUDFLARE WORKER API PARITY & BACKEND COMPLETION
+  // ---------------------------------------------------------------
+  console.log('\nTest Suite 14: Phase 6D Cloudflare Worker API Parity & Backend Completion');
+
+  const { workerAiCache } = await import('../src/worker/ai.ts');
+  const { resetWorkerRateLimits } = await import('../src/worker/rateLimiter.ts');
+  workerAiCache.clear();
+  resetWorkerRateLimits();
+
+  // 14.1. GET /api/health & method check
+  const healthGetRes = await workerDefault.fetch(
+    new Request('http://localhost/api/health', { method: 'GET' }),
+    authEnv,
+    mockCtx
+  );
+  const healthGetJson = (await healthGetRes.json()) as any;
+  assert(
+    healthGetRes.status === 200 &&
+      healthGetJson.ok === true &&
+      healthGetJson.status === 'ok' &&
+      healthGetJson.d1Available === true &&
+      healthGetJson.aiAvailable === false &&
+      typeof healthGetJson.totalQuestionsInBank === 'number',
+    'GET /api/health returns 200 OK with service status, d1Available=true, aiAvailable=false, and totalQuestionsInBank'
+  );
+
+  const healthPostRes = await workerDefault.fetch(
+    new Request('http://localhost/api/health', { method: 'POST' }),
+    authEnv,
+    mockCtx
+  );
+  assert(
+    healthPostRes.status === 405,
+    'POST /api/health is rejected with 405 Method Not Allowed'
+  );
+
+  // 14.2. GET /api/quiz/bank filtering, validation, and auto-seeding
+  const quizBankGetRes = await workerDefault.fetch(
+    new Request('http://localhost/api/quiz/bank?chapterId=s1_c1&difficulty=easy&limit=5', {
+      method: 'GET',
+    }),
+    authEnv,
+    mockCtx
+  );
+  const quizBankGetJson = (await quizBankGetRes.json()) as any;
+  assert(
+    quizBankGetRes.status === 200 &&
+      Array.isArray(quizBankGetJson.questions) &&
+      quizBankGetJson.questions.length >= 1 &&
+      quizBankGetJson.questions.every((q: any) => q.chapterId === 's1_c1' && q.difficulty === 'easy') &&
+      typeof quizBankGetJson.totalInBank === 'number' &&
+      quizBankGetJson.totalInBank > 0,
+    'GET /api/quiz/bank returns filtered D1 questions and totalInBank count'
+  );
+
+  const quizBankBadDiffRes = await workerDefault.fetch(
+    new Request('http://localhost/api/quiz/bank?difficulty=invalid_diff', { method: 'GET' }),
+    authEnv,
+    mockCtx
+  );
+  assert(
+    quizBankBadDiffRes.status === 400,
+    'GET /api/quiz/bank rejects invalid difficulty parameter with 400 Bad Request'
+  );
+
+  const quizBankPostRes = await workerDefault.fetch(
+    new Request('http://localhost/api/quiz/bank', { method: 'POST' }),
+    authEnv,
+    mockCtx
+  );
+  assert(
+    quizBankPostRes.status === 405,
+    'POST /api/quiz/bank is rejected with 405 Method Not Allowed'
+  );
+
+  // Test auto-seeding on an empty D1 database instance
+  const emptyBankSqlite = new DatabaseSync(':memory:');
+  emptyBankSqlite.exec(m1);
+  const emptyBankDb = createMockD1(emptyBankSqlite);
+  const emptyBankRes = await workerDefault.fetch(
+    new Request('http://localhost/api/quiz/bank?limit=10', { method: 'GET' }),
+    { DB: emptyBankDb },
+    mockCtx
+  );
+  const emptyBankJson = (await emptyBankRes.json()) as any;
+  assert(
+    emptyBankRes.status === 200 &&
+      emptyBankJson.totalInBank === 7 &&
+      emptyBankJson.questions.length === 7,
+    'GET /api/quiz/bank auto-seeds the 7 curated academic questions when D1 question_bank is initially empty'
+  );
+
+  // 14.3. POST /api/quiz/bank/generate (503 without AI, 400 on invalid AI schema, 200 + D1 persistence on valid AI schema)
+  const genNoAiRes = await workerDefault.fetch(
+    new Request('http://localhost/api/quiz/bank/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chapterId: 's1_c2', chapterTitle: 'مبانی زیستی', difficulty: 'hard' }),
+    }),
+    authEnv,
+    mockCtx
+  );
+  assert(
+    genNoAiRes.status === 503,
+    'POST /api/quiz/bank/generate returns 503 when AI service is not configured'
+  );
+
+  const badAiEnv = {
+    ...authEnv,
+    AI_CLIENT: {
+      async generateText() {
+        return JSON.stringify({
+          question: 'سوال ناقص با سه گزینه',
+          options: ['الف', 'ب', 'ج'],
+          correctIndex: 0,
+          explanation: 'توضیح',
+        });
+      },
+    },
+  };
+  const genInvalidSchemaRes = await workerDefault.fetch(
+    new Request('http://localhost/api/quiz/bank/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chapterId: 's1_c2', chapterTitle: 'مبانی زیستی', difficulty: 'hard' }),
+    }),
+    badAiEnv,
+    mockCtx
+  );
+  assert(
+    genInvalidSchemaRes.status === 400,
+    'POST /api/quiz/bank/generate rejects AI output that violates the 4-option question contract (400)'
+  );
+
+  let aiGenerateCallCount = 0;
+  const validAiEnv = {
+    ...authEnv,
+    AI_CLIENT: {
+      async generateText(params: { contents: string; responseMimeType?: string }) {
+        aiGenerateCallCount++;
+        if (params.responseMimeType === 'application/json') {
+          return JSON.stringify({
+            question: 'کدام ساختار مغزی نقش اصلی را در تثبیت حافظه صریح از کوتاه‌مدت به بلندمدت ایفا می‌کند؟',
+            options: ['هیپوکامپ (Hippocampus)', 'مخچه (Cerebellum)', 'پیاز مغز (Medulla)', 'پل مغزی (Pons)'],
+            correctIndex: 0,
+            explanation: 'هیپوکامپ در لوب گیجگاهی میانی برای تثبیت حافظه‌های رویدادی و معنایی (صریح) ضروری است.',
+          });
+        }
+        return `پاسخ تخصصی منتور: ${params.contents.slice(0, 40)}`;
+      },
+      async *generateTextStream() {
+        yield { text: 'بخش اول پاسخ استریم منتور: ' };
+        yield { text: 'تفاوت ساختاری و کارکردی به طور کامل تشریح شد.' };
+      },
+    },
+  };
+
+  const countBeforeGen = await qRepo.getTotalCount();
+  const genValidRes = await workerDefault.fetch(
+    new Request('http://localhost/api/quiz/bank/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chapterId: 's1_c2_ai_test',
+        chapterTitle: 'فصل ۲: مبانی زیستی و حافظه',
+        difficulty: 'hard',
+      }),
+    }),
+    validAiEnv,
+    mockCtx
+  );
+  const genValidJson = (await genValidRes.json()) as any;
+  const countAfterGen = await qRepo.getTotalCount();
+  assert(
+    genValidRes.status === 200 &&
+      genValidJson.success === true &&
+      genValidJson.question?.source === 'ai-generated' &&
+      genValidJson.question?.options?.length === 4 &&
+      countAfterGen === countBeforeGen + 1,
+    'POST /api/quiz/bank/generate validates, persists, and returns a new 4-option AI-generated question in D1'
+  );
+
+  // 14.4. POST /api/ai/mentor (validation, offline fallback, live AI, and normalized cache hit)
+  const mentorEmptyRes = await workerDefault.fetch(
+    new Request('http://localhost/api/ai/mentor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: '   ' }),
+    }),
+    authEnv,
+    mockCtx
+  );
+  assert(
+    mentorEmptyRes.status === 400,
+    'POST /api/ai/mentor rejects empty question with 400 Bad Request'
+  );
+
+  const mentorOfflineRes = await workerDefault.fetch(
+    new Request('http://localhost/api/ai/mentor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question: 'تفاوت تقویت منفی و تنبیه چیست؟',
+        chapterTitle: 'یادگیری و شرطی‌سازی',
+      }),
+    }),
+    authEnv,
+    mockCtx
+  );
+  const mentorOfflineJson = (await mentorOfflineRes.json()) as any;
+  assert(
+    mentorOfflineRes.status === 200 &&
+      mentorOfflineJson.source === 'offline-fallback' &&
+      typeof mentorOfflineJson.reply === 'string' &&
+      mentorOfflineJson.reply.length > 0,
+    'POST /api/ai/mentor returns graceful offline academic fallback when AI key is not configured'
+  );
+
+  const callsBeforeMentor = aiGenerateCallCount;
+  const mentorLiveRes = await workerDefault.fetch(
+    new Request('http://localhost/api/ai/mentor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question: 'تفاوت بنیادی پتانسیل عمل و پتانسیل استراحت چیست؟',
+        chapterTitle: 'مبانی زیستی',
+      }),
+    }),
+    validAiEnv,
+    mockCtx
+  );
+  const mentorLiveJson = (await mentorLiveRes.json()) as any;
+  assert(
+    mentorLiveRes.status === 200 &&
+      mentorLiveJson.source === 'gemini' &&
+      aiGenerateCallCount === callsBeforeMentor + 1,
+    'POST /api/ai/mentor returns live AI mentor response and caches it'
+  );
+
+  // Ask the same question with Arabic Yeh/Kaf and punctuation differences to verify normalized cache hit
+  const mentorCachedRes = await workerDefault.fetch(
+    new Request('http://localhost/api/ai/mentor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question: 'تفاوت بنیادي پتانسیل عمل و پتانسیل استراحت چیست؟؟!',
+        chapterTitle: 'مبانی زیستی',
+      }),
+    }),
+    validAiEnv,
+    mockCtx
+  );
+  const mentorCachedJson = (await mentorCachedRes.json()) as any;
+  assert(
+    mentorCachedRes.status === 200 &&
+      mentorCachedJson.source === 'cache' &&
+      mentorCachedJson.hitCount === 2 &&
+      aiGenerateCallCount === callsBeforeMentor + 1,
+    'POST /api/ai/mentor serves normalized Persian/Arabic repeat question from cache without invoking AI again'
+  );
+
+  // 14.5. POST /api/ai/mentor/stream (SSE format for live stream and cached response)
+  const streamLiveRes = await workerDefault.fetch(
+    new Request('http://localhost/api/ai/mentor/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question: 'نقش آمیگدال در پردازش هیجان ترس چیست؟',
+        chapterTitle: 'مبانی زیستی',
+      }),
+    }),
+    validAiEnv,
+    mockCtx
+  );
+  const streamLiveText = await streamLiveRes.text();
+  assert(
+    streamLiveRes.status === 200 &&
+      (streamLiveRes.headers.get('Content-Type') || '').includes('text/event-stream') &&
+      streamLiveText.includes('data: ') &&
+      streamLiveText.includes('بخش اول پاسخ استریم منتور') &&
+      streamLiveText.includes('data: [DONE]'),
+    'POST /api/ai/mentor/stream streams SSE chunks and terminates with data: [DONE]'
+  );
+
+  // 14.6. POST /api/ai/adaptive-plan (offline fallback and live AI)
+  const adaptiveOfflineRes = await workerDefault.fetch(
+    new Request('http://localhost/api/ai/adaptive-plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        stats: { overallMastery: 62, correctCount: 18, incorrectCount: 11 },
+        weakChapters: ['آسیب‌شناسی روانی'],
+      }),
+    }),
+    authEnv,
+    mockCtx
+  );
+  const adaptiveOfflineJson = (await adaptiveOfflineRes.json()) as any;
+  assert(
+    adaptiveOfflineRes.status === 200 &&
+      adaptiveOfflineJson.source === 'offline-fallback' &&
+      typeof adaptiveOfflineJson.plan === 'string',
+    'POST /api/ai/adaptive-plan returns structured offline study plan when AI is unconfigured'
+  );
+
+  const adaptiveLiveRes = await workerDefault.fetch(
+    new Request('http://localhost/api/ai/adaptive-plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        stats: { overallMastery: 78, correctCount: 39, incorrectCount: 11 },
+        weakChapters: ['آمار و روش تحقیق'],
+      }),
+    }),
+    validAiEnv,
+    mockCtx
+  );
+  const adaptiveLiveJson = (await adaptiveLiveRes.json()) as any;
+  assert(
+    adaptiveLiveRes.status === 200 &&
+      adaptiveLiveJson.source === 'gemini' &&
+      typeof adaptiveLiveJson.plan === 'string' &&
+      adaptiveLiveJson.plan.length > 0,
+    'POST /api/ai/adaptive-plan returns personalized AI study plan when AI client is configured'
+  );
+
+  // 14.7. Analytics endpoints (/api/analytics/ping, /api/analytics/track, /api/analytics/stats)
+  const badPingRes = await workerDefault.fetch(
+    new Request('http://localhost/api/analytics/ping', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: '' }),
+    }),
+    authEnv,
+    mockCtx
+  );
+  assert(
+    badPingRes.status === 400,
+    'POST /api/analytics/ping rejects missing sessionId/visitorId with 400 Bad Request'
+  );
+
+  const validPingRes = await workerDefault.fetch(
+    new Request('http://localhost/api/analytics/ping', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: 'sess_worker_6d_1',
+        visitorId: 'vis_worker_6d_1',
+        device: 'desktop',
+        browser: 'Chrome',
+        os: 'Linux',
+        path: '/quiz',
+        title: 'آزمون مرحله ۱',
+      }),
+    }),
+    authEnv,
+    mockCtx
+  );
+  const validPingJson = (await validPingRes.json()) as any;
+  assert(
+    validPingRes.status === 200 &&
+      validPingJson.ok === true &&
+      typeof validPingJson.onlineUsersCount === 'number' &&
+      validPingJson.onlineUsersCount >= 1,
+    'POST /api/analytics/ping registers active session and returns onlineUsersCount'
+  );
+
+  const validTrackRes = await workerDefault.fetch(
+    new Request('http://localhost/api/analytics/track', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: 'sess_worker_6d_1',
+        visitorId: 'vis_worker_6d_1',
+        device: 'desktop',
+        browser: 'Chrome',
+        os: 'Linux',
+        path: '/book',
+        title: 'مطالعه فصل مکاتب روان‌شناسی',
+        eventType: 'pageview',
+      }),
+    }),
+    authEnv,
+    mockCtx
+  );
+  const validTrackJson = (await validTrackRes.json()) as any;
+  assert(
+    validTrackRes.status === 200 &&
+      validTrackJson.ok === true &&
+      typeof validTrackJson.onlineUsersCount === 'number',
+    'POST /api/analytics/track records visitor event and returns onlineUsersCount'
+  );
+
+  const statsRes = await workerDefault.fetch(
+    new Request(
+      'http://localhost/api/analytics/stats?visitorId=vis_worker_6d_1&sessionId=sess_worker_6d_1',
+      { method: 'GET' }
+    ),
+    authEnv,
+    mockCtx
+  );
+  const statsJson = (await statsRes.json()) as any;
+  assert(
+    statsRes.status === 200 &&
+      typeof statsJson.onlineUsersCount === 'number' &&
+      statsJson.isAdminView === false &&
+      statsJson.detailedAnalyticsRedacted === true &&
+      Array.isArray(statsJson.onlineSessions) &&
+      statsJson.onlineSessions.length === 0 &&
+      Array.isArray(statsJson.week?.days) &&
+      statsJson.week.days.length === 7 &&
+      Array.isArray(statsJson.deviceBreakdown) &&
+      Array.isArray(statsJson.browserBreakdown) &&
+      Array.isArray(statsJson.topPages) &&
+      Array.isArray(statsJson.recentEvents) &&
+      statsJson.recentEvents.length === 0 &&
+      !JSON.stringify(statsJson).includes('vis_worker_6d_1') &&
+      !JSON.stringify(statsJson).includes('sess_worker_6d_1'),
+    'GET /api/analytics/stats returns coarse aggregate SiteAnalyticsData while redacting onlineSessions, recentEvents, and visitor/session IDs for non-admin callers'
+  );
+
+  // 14.8. Student Summary Report endpoint (POST /api/reports/student-summary)
+  const summaryRes = await workerDefault.fetch(
+    new Request('http://localhost/api/reports/student-summary', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userName: 'سارا محمدی',
+        stats: { overallMastery: 86, accuracyRate: 84 },
+        progress: {
+          totalStudyMinutes: 340,
+          streakDays: 9,
+          completedChapters: ['s1_c1', 's1_c2', 's1_c3'],
+          unlockedBadgeIds: ['b1', 'b2'],
+        },
+        weakestChapters: ['آمار و روش تحقیق'],
+      }),
+    }),
+    authEnv,
+    mockCtx
+  );
+  const summaryJson = (await summaryRes.json()) as any;
+  assert(
+    summaryRes.status === 200 &&
+      summaryJson.ok === true &&
+      summaryJson.verified === false &&
+      summaryJson.report?.verified === false &&
+      summaryJson.report?.isServerVerified === false &&
+      summaryJson.report?.verificationStatus === 'unverified-client-reported' &&
+      summaryJson.report?.dataSource === 'client-self-reported' &&
+      summaryJson.report?.studentName === 'سارا محمدی' &&
+      summaryJson.report?.overallMastery === '86٪' &&
+      summaryJson.report?.accuracyRate === '84٪' &&
+      summaryJson.report?.completedChaptersCount === 3 &&
+      summaryJson.report?.unlockedBadgesCount === 2 &&
+      String(summaryJson.report?.verificationStamp).includes('تأییدنشده'),
+    'POST /api/reports/student-summary marks unauthenticated client-supplied report as unverified (verified: false, client-self-reported)'
+  );
+
+  // 14.9. Unknown /api/* routes return JSON 404 (not SPA HTML) & Rate Limiter enforces 429 on abuse
+  const unknownApiRes = await workerDefault.fetch(
+    new Request('http://localhost/api/non-existent-endpoint', { method: 'GET' }),
+    {
+      ...authEnv,
+      ASSETS: {
+        async fetch() {
+          return new Response('<html>SPA Fallback</html>', {
+            status: 200,
+            headers: { 'Content-Type': 'text/html' },
+          });
+        },
+      },
+    },
+    mockCtx
+  );
+  const unknownApiJson = (await unknownApiRes.json()) as any;
+  assert(
+    unknownApiRes.status === 404 &&
+      unknownApiJson.ok === false &&
+      (unknownApiRes.headers.get('Content-Type') || '').includes('application/json'),
+    'Unknown /api/* route returns 404 JSON error and never falls through to SPA HTML asset'
+  );
+
+  // Test AI route rate limiting (35 req/min limit per client IP)
+  let rateLimitedResponse: Response | null = null;
+  for (let i = 0; i < 36; i++) {
+    const res = await workerDefault.fetch(
+      new Request('http://localhost/api/ai/adaptive-plan', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'CF-Connecting-IP': '203.0.113.77',
+        },
+        body: JSON.stringify({ stats: { overallMastery: 50 }, weakChapters: [] }),
+      }),
+      authEnv,
+      mockCtx
+    );
+    if (res.status === 429) {
+      rateLimitedResponse = res;
+      break;
+    }
+  }
+  assert(
+    rateLimitedResponse !== null &&
+      rateLimitedResponse.status === 429 &&
+      Number(rateLimitedResponse.headers.get('Retry-After')) >= 1,
+    'Worker rate limiter blocks excessive AI endpoint requests with 429 Too Many Requests and Retry-After header'
+  );
+
+  // ===============================================================
+  // TEST SUITE 15: PHASE 6D.1 OPERATIONAL SECURITY & DATA RELIABILITY
+  // ===============================================================
+  console.log('\nTest Suite 15: Phase 6D.1 Operational Security & Data Reliability');
+
+  // 15.1. Sequential Migration 0005 verification
+  const m5 = fs.readFileSync('migrations/0005_worker_operational_state.sql', 'utf8');
+  sqlite.exec(m5);
+  const rateLimitsTableCheck = sqlite
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='api_rate_limits'")
+    .get();
+  const aiCacheTableCheck = sqlite
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='ai_response_cache'")
+    .get();
+  const analyticsDailyTableCheck = sqlite
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='analytics_daily'")
+    .get();
+  const analyticsEventsTableCheck = sqlite
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='analytics_events'")
+    .get();
+  assert(
+    Boolean(rateLimitsTableCheck) &&
+      Boolean(aiCacheTableCheck) &&
+      Boolean(analyticsDailyTableCheck) &&
+      Boolean(analyticsEventsTableCheck),
+    'Migration 0005 creates api_rate_limits, ai_response_cache, analytics_daily, and analytics_events tables'
+  );
+
+  // 15.2. Task 1: Detailed Analytics Access Control Policy
+  // (a) Unauthenticated request for ?detailed=true fails with 401
+  const unauthDetailedRes = await workerDefault.fetch(
+    new Request(
+      'http://localhost/api/analytics/stats?detailed=true&visitorId=vis_worker_6d_1&sessionId=sess_worker_6d_1',
+      { method: 'GET' }
+    ),
+    { ...authEnv, ADMIN_EMAILS: 'admin@psychomaster.ir' },
+    mockCtx
+  );
+  assert(
+    unauthDetailedRes.status === 401,
+    'Unauthenticated GET /api/analytics/stats?detailed=true is rejected with 401 even when visitorId/sessionId query params are supplied'
+  );
+
+  // (b) Create a regular Google-authenticated user (NOT in ADMIN_EMAILS) and an allowlisted Admin Google user
+  const regularGoogleUser = await userRepo.createOrUpdateGoogleUser({
+    googleId: 'g_sub_regular_6d1',
+    email: 'student.regular@example.com',
+    name: 'دانشجوی عادی',
+    mode: 'signin',
+  });
+  const regularUserToken = generateSessionToken();
+  await userRepo.createSession(
+    regularGoogleUser.user.userId,
+    await hashSessionToken(regularUserToken)
+  );
+
+  const adminGoogleUser = await userRepo.createOrUpdateGoogleUser({
+    googleId: 'g_sub_admin_6d1',
+    email: 'admin@psychomaster.ir',
+    name: 'مدیر ارشد سامانه',
+    mode: 'signin',
+  });
+  const adminUserToken = generateSessionToken();
+  await userRepo.createSession(
+    adminGoogleUser.user.userId,
+    await hashSessionToken(adminUserToken)
+  );
+
+  // (c) Ordinary Google sign-in alone CANNOT access detailed analytics
+  const regularStatsRes = await workerDefault.fetch(
+    new Request('http://localhost/api/analytics/stats', {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${regularUserToken}` },
+    }),
+    { ...authEnv, ADMIN_EMAILS: 'admin@psychomaster.ir' },
+    mockCtx
+  );
+  const regularStatsJson = (await regularStatsRes.json()) as any;
+  assert(
+    regularStatsRes.status === 200 &&
+      regularStatsJson.isAdminView === false &&
+      regularStatsJson.onlineSessions.length === 0 &&
+      regularStatsJson.recentEvents.length === 0,
+    'Ordinary Google-authenticated user (not in ADMIN_EMAILS) receives redacted analytics with empty onlineSessions and recentEvents'
+  );
+
+  const regularDetailedRes = await workerDefault.fetch(
+    new Request('http://localhost/api/analytics/stats?detailed=true', {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${regularUserToken}` },
+    }),
+    { ...authEnv, ADMIN_EMAILS: 'admin@psychomaster.ir' },
+    mockCtx
+  );
+  assert(
+    regularDetailedRes.status === 403,
+    'Ordinary Google-authenticated user requesting GET /api/analytics/stats?detailed=true is rejected with 403 Forbidden'
+  );
+
+  // (d) When no ADMIN_EMAILS / ADMIN_USER_IDS allowlist is configured, fail closed even for admin user
+  const unconfiguredAdminRes = await workerDefault.fetch(
+    new Request('http://localhost/api/analytics/stats?detailed=true', {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${adminUserToken}` },
+    }),
+    authEnv, // No ADMIN_EMAILS or ADMIN_USER_IDS
+    mockCtx
+  );
+  assert(
+    unconfiguredAdminRes.status === 403,
+    'When no admin allowlist is configured on the server, detailed analytics fail closed with 403 Forbidden'
+  );
+
+  // (e) Guest account cannot be granted admin access even if its ID is placed in ADMIN_USER_IDS
+  await userRepo.upsertUser({ userId: 'u_guest_6d1', name: 'مهمان' });
+  const guestAdminToken = generateSessionToken();
+  await userRepo.createSession('u_guest_6d1', await hashSessionToken(guestAdminToken));
+  const guestDetailedRes = await workerDefault.fetch(
+    new Request('http://localhost/api/analytics/stats?detailed=true', {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${guestAdminToken}` },
+    }),
+    { ...authEnv, ADMIN_USER_IDS: 'u_guest_6d1' },
+    mockCtx
+  );
+  assert(
+    guestDetailedRes.status === 403,
+    'Guest session cannot obtain administrator analytics privileges even if listed in ADMIN_USER_IDS'
+  );
+
+  // (f) Verified Google administrator in ADMIN_EMAILS receives detailed analytics with masked session/visitor IDs
+  const adminStatsRes = await workerDefault.fetch(
+    new Request('http://localhost/api/analytics/stats?detailed=true', {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${adminUserToken}` },
+    }),
+    { ...authEnv, ADMIN_EMAILS: 'admin@psychomaster.ir' },
+    mockCtx
+  );
+  const adminStatsJson = (await adminStatsRes.json()) as any;
+  assert(
+    adminStatsRes.status === 200 &&
+      adminStatsJson.isAdminView === true &&
+      adminStatsJson.detailedAnalyticsRedacted === false &&
+      Array.isArray(adminStatsJson.onlineSessions) &&
+      adminStatsJson.onlineSessions.length >= 1 &&
+      Array.isArray(adminStatsJson.recentEvents) &&
+      adminStatsJson.recentEvents.length >= 1 &&
+      !JSON.stringify(adminStatsJson).includes('vis_worker_6d_1') &&
+      !JSON.stringify(adminStatsJson).includes('sess_worker_6d_1'),
+    'Verified allowlisted Google administrator receives detailed analytics while raw visitorId and sessionId tokens remain masked'
+  );
+
+  // 15.3. Task 2: Prevent Student Reports from Presenting Client-Supplied Data as Server-Verified Facts
+  // (a) Unauthenticated request attempting to specify userId is rejected with 401
+  const spoofUserIdReportRes = await workerDefault.fetch(
+    new Request('http://localhost/api/reports/student-summary', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: regularGoogleUser.user.userId,
+        stats: { overallMastery: 99, accuracyRate: 99 },
+      }),
+    }),
+    authEnv,
+    mockCtx
+  );
+  assert(
+    spoofUserIdReportRes.status === 401,
+    'Unauthenticated POST /api/reports/student-summary with a target userId is rejected with 401 Unauthorized'
+  );
+
+  // (b) Authenticated user with 0 verified stages sending fabricated 100% mastery / 99,999 study minutes
+  const fabricatedAuthReportRes = await workerDefault.fetch(
+    new Request('http://localhost/api/reports/student-summary', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${regularUserToken}`,
+      },
+      body: JSON.stringify({
+        userName: 'پروفسور جعلی',
+        stats: { overallMastery: 100, accuracyRate: 100 },
+        progress: {
+          totalStudyMinutes: 99999,
+          streakDays: 365,
+          completedChapters: ['c1', 'c2', 'c3', 'c4', 'c5'],
+          unlockedBadgeIds: ['b1', 'b2', 'b3', 'b4'],
+        },
+      }),
+    }),
+    authEnv,
+    mockCtx
+  );
+  const fabricatedAuthReportJson = (await fabricatedAuthReportRes.json()) as any;
+  assert(
+    fabricatedAuthReportRes.status === 200 &&
+      fabricatedAuthReportJson.verified === true &&
+      fabricatedAuthReportJson.report?.verified === true &&
+      fabricatedAuthReportJson.report?.dataSource === 'server-authoritative' &&
+      fabricatedAuthReportJson.report?.studentName === 'دانشجوی عادی' &&
+      fabricatedAuthReportJson.report?.overallMastery === '0٪' &&
+      fabricatedAuthReportJson.report?.accuracyRate === '0٪' &&
+      fabricatedAuthReportJson.report?.totalStudyMinutes === 0 &&
+      fabricatedAuthReportJson.report?.completedChaptersCount === 0 &&
+      fabricatedAuthReportJson.report?.verifiedStagesCount === 0,
+    'Authenticated POST /api/reports/student-summary completely ignores client-supplied stats/progress and reports authoritative D1 zeros'
+  );
+
+  // (c) Authenticated user who genuinely completed Stage 1 & Stage 2 in Suite 13 (s13Token)
+  const s13VerifiedReportRes = await workerDefault.fetch(
+    new Request('http://localhost/api/reports/student-summary', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${s13Token}`,
+      },
+      body: JSON.stringify({
+        // Pass bogus 0% client values to prove server uses D1 xp_ledger & profile instead
+        stats: { overallMastery: 0, accuracyRate: 0 },
+        progress: { totalStudyMinutes: 0, streakDays: 0, completedChapters: [] },
+      }),
+    }),
+    authEnv,
+    mockCtx
+  );
+  const s13VerifiedReportJson = (await s13VerifiedReportRes.json()) as any;
+  assert(
+    s13VerifiedReportRes.status === 200 &&
+      s13VerifiedReportJson.verified === true &&
+      s13VerifiedReportJson.report?.verifiedStagesCount === 2 &&
+      s13VerifiedReportJson.report?.verifiedXp === 30 &&
+      s13VerifiedReportJson.report?.accuracyRate === '90٪' &&
+      s13VerifiedReportJson.report?.overallMastery !== '0٪',
+    'Authenticated POST /api/reports/student-summary derives verifiedStagesCount, verifiedXp, and accuracyRate (90% = 18/20) from D1 xp_ledger'
+  );
+
+  // 15.4. Task 3: Cross-Isolate D1 Rate Limiting & Anti-Spoofing for Billable AI Endpoints
+  const { clearWorkerInMemoryRateLimits } = await import('../src/worker/rateLimiter.ts');
+  const { workerAnalyticsManager } = await import('../src/worker/analytics.ts');
+
+  // (a) Verify that clearing isolate memory (simulating an isolate cold start / new isolate)
+  // DOES NOT reset the 429 block for IP 203.0.113.77 because the quota is persisted in D1 `api_rate_limits`!
+  clearWorkerInMemoryRateLimits();
+  const postColdStartAiRes = await workerDefault.fetch(
+    new Request('http://localhost/api/ai/adaptive-plan', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'CF-Connecting-IP': '203.0.113.77',
+        // Also attempt to spoof X-Visitor-Id and X-Forwarded-For to bypass IP rate limit
+        'X-Visitor-Id': 'spoofed_visitor_9999',
+        'X-Forwarded-For': '198.51.100.123',
+      },
+      body: JSON.stringify({ stats: { overallMastery: 50 }, weakChapters: [] }),
+    }),
+    authEnv,
+    mockCtx
+  );
+  assert(
+    postColdStartAiRes.status === 429,
+    'D1-backed AI rate limiter blocks requests across isolate cold starts and resists X-Visitor-Id / X-Forwarded-For header spoofing'
+  );
+
+  // (b) Verify prompt length cap on billable AI endpoints
+  const oversizedQuestion = 'الف'.repeat(1050);
+  const oversizedMentorRes = await workerDefault.fetch(
+    new Request('http://localhost/api/ai/mentor', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'CF-Connecting-IP': '198.51.100.55',
+      },
+      body: JSON.stringify({ question: oversizedQuestion }),
+    }),
+    validAiEnv,
+    mockCtx
+  );
+  assert(
+    oversizedMentorRes.status === 400,
+    'POST /api/ai/mentor rejects oversized prompts (>1000 chars) with 400 Bad Request before invoking Gemini'
+  );
+
+  // 15.5. Task 4: D1 Persistence Across Isolate Restarts (AI Cache & Analytics)
+  // (a) Clear in-memory AI cache and verify `/api/ai/mentor` still hits L2 D1 `ai_response_cache` without calling Gemini
+  const aiCallsBeforeColdCache = aiGenerateCallCount;
+  workerAiCache.clearMemoryOnly();
+  const d1CachedMentorRes = await workerDefault.fetch(
+    new Request('http://localhost/api/ai/mentor', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'CF-Connecting-IP': '198.51.100.56',
+      },
+      body: JSON.stringify({
+        question: 'تفاوت بنیادی پتانسیل عمل و پتانسیل استراحت چیست؟',
+        chapterTitle: 'مبانی زیستی',
+      }),
+    }),
+    validAiEnv,
+    mockCtx
+  );
+  const d1CachedMentorJson = (await d1CachedMentorRes.json()) as any;
+  assert(
+    d1CachedMentorRes.status === 200 &&
+      d1CachedMentorJson.source === 'cache' &&
+      d1CachedMentorJson.hitCount >= 3 &&
+      aiGenerateCallCount === aiCallsBeforeColdCache,
+    'After isolate memory reset, POST /api/ai/mentor serves cached answer from D1 ai_response_cache without a billable AI call'
+  );
+
+  // (b) Clear in-memory analytics state and verify `/api/analytics/stats` hydrates persisted daily visits and events from D1
+  workerAnalyticsManager.clearMemoryOnly();
+  const d1HydratedStatsRes = await workerDefault.fetch(
+    new Request('http://localhost/api/analytics/stats?detailed=true', {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${adminUserToken}` },
+    }),
+    { ...authEnv, ADMIN_EMAILS: 'admin@psychomaster.ir' },
+    mockCtx
+  );
+  const d1HydratedStatsJson = (await d1HydratedStatsRes.json()) as any;
+  assert(
+    d1HydratedStatsRes.status === 200 &&
+      d1HydratedStatsJson.today?.visits >= 1 &&
+      Array.isArray(d1HydratedStatsJson.recentEvents) &&
+      d1HydratedStatsJson.recentEvents.some((e: any) => e.title === 'مطالعه فصل مکاتب روان‌شناسی'),
+    'After isolate memory reset, GET /api/analytics/stats hydrates persisted daily visits and tracked events from D1'
+  );
+
+  // =========================================================================
+  // 16. PHASE 6G: FINAL BACKEND CLOSURE, ATOMIC D1 RATE LIMITING & RETENTION
+  // =========================================================================
+  console.log('\n--- 16. Phase 6G Final Backend Closure, Atomic D1 Rate Limiting & Retention ---');
+
+  // 16.1 Task 1: Cross-origin POST rejection on analytics endpoints & session ownership on GET /api/leaderboard?userId=...
+  const crossOriginPingRes = await workerDefault.fetch(
+    new Request('http://localhost/api/analytics/ping', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: 'https://evil-attacker.example.com',
+        'CF-Connecting-IP': '198.51.100.70',
+      },
+      body: JSON.stringify({ sessionId: 'sess_csrf_1', visitorId: 'vis_csrf_1' }),
+    }),
+    authEnv,
+    mockCtx
+  );
+  assert(
+    crossOriginPingRes.status === 403,
+    'POST /api/analytics/ping rejects cross-origin requests with 403 Forbidden'
+  );
+
+  const crossOriginTrackRes = await workerDefault.fetch(
+    new Request('http://localhost/api/analytics/track', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: 'https://evil-attacker.example.com',
+        'CF-Connecting-IP': '198.51.100.70',
+      },
+      body: JSON.stringify({ sessionId: 'sess_csrf_1', visitorId: 'vis_csrf_1', path: '/test' }),
+    }),
+    authEnv,
+    mockCtx
+  );
+  assert(
+    crossOriginTrackRes.status === 403,
+    'POST /api/analytics/track rejects cross-origin requests with 403 Forbidden'
+  );
+
+  const unauthLeaderboardRankProbeRes = await workerDefault.fetch(
+    new Request(`http://localhost/api/leaderboard?userId=${encodeURIComponent(s13UserId)}`, {
+      method: 'GET',
+      headers: { 'CF-Connecting-IP': '198.51.100.71' },
+    }),
+    authEnv,
+    mockCtx
+  );
+  const unauthLeaderboardRankProbeJson = (await unauthLeaderboardRankProbeRes.json()) as any;
+  assert(
+    unauthLeaderboardRankProbeRes.status === 200 &&
+      unauthLeaderboardRankProbeJson.currentUserRank === -1 &&
+      !unauthLeaderboardRankProbeJson.leaderboard.some((entry: any) => entry.isCurrentUser === true),
+    'GET /api/leaderboard?userId=<victim> without matching session does not leak victim rank or mark victim as isCurrentUser'
+  );
+
+  const authLeaderboardRankRes = await workerDefault.fetch(
+    new Request(`http://localhost/api/leaderboard?userId=${encodeURIComponent(s13UserId)}`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${s13Token}`,
+        'CF-Connecting-IP': '198.51.100.71',
+      },
+    }),
+    authEnv,
+    mockCtx
+  );
+  const authLeaderboardRankJson = (await authLeaderboardRankRes.json()) as any;
+  assert(
+    authLeaderboardRankRes.status === 200 && authLeaderboardRankJson.currentUserRank >= 1,
+    'GET /api/leaderboard?userId=<self> with valid matching session returns caller currentUserRank'
+  );
+
+  // 16.2 Task 2: Online-verified vs offline-local stage provenance & tamper protection
+  // s13UserId completed Stage 1 (score: 8, stars: 2) and Stage 2 via `/api/leaderboard/submit` earlier
+  const stageTamperSyncRes = await workerDefault.fetch(
+    new Request('http://localhost/api/user/sync', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${s13Token}`,
+        'CF-Connecting-IP': '198.51.100.72',
+      },
+      body: JSON.stringify({
+        userId: s13UserId,
+        name: 'کاربر مرحله ۱۳',
+        completedStages: {
+          '1': {
+            stageNumber: 1,
+            completedAt: new Date().toISOString(),
+            stars: 1,
+            score: 1,
+            totalQuestions: 10,
+            xpEarned: 999,
+          },
+          '3': {
+            stageNumber: 3,
+            completedAt: new Date().toISOString(),
+            stars: 3,
+            score: 10,
+            totalQuestions: 10,
+            xpEarned: 150,
+          },
+        },
+      }),
+    }),
+    authEnv,
+    mockCtx
+  );
+  const stageTamperSyncJson = (await stageTamperSyncRes.json()) as any;
+  const syncedStage1 = stageTamperSyncJson.profile?.completedStages?.['1'];
+  const syncedStage3 = stageTamperSyncJson.profile?.completedStages?.['3'];
+  assert(
+    stageTamperSyncRes.status === 200 &&
+      syncedStage1?.verified === true &&
+      syncedStage1?.source === 'online-verified' &&
+      syncedStage1?.stars === 2 &&
+      syncedStage1?.score === 8 &&
+      syncedStage3?.verified === false &&
+      syncedStage3?.source === 'offline-local',
+    'POST /api/user/sync preserves online-verified stage score/stars against client overwrite and tags unverified offline stages as offline-local (verified: false)'
+  );
+
+  // 16.3 Task 3: Atomic D1 rate-limiter concurrency, deterministic pruning & fail-closed on D1 failure
+  const { pruneExpiredRateLimits, checkWorkerRateLimit } = await import('../src/worker/rateLimiter.ts');
+  clearWorkerInMemoryRateLimits();
+
+  // Fire 40 concurrent requests from the same IP across cold isolate state and verify exact cap of AI_MAX_REQUESTS (35) allowed
+  const concurrentAiIp = '198.51.100.88';
+  const concurrentRateLimitPromises = Array.from({ length: 40 }, () => {
+    clearWorkerInMemoryRateLimits();
+    return checkWorkerRateLimit(
+      new Request('http://localhost/api/ai/mentor', {
+        method: 'POST',
+        headers: { 'CF-Connecting-IP': concurrentAiIp },
+      }),
+      '/api/ai/mentor',
+      validAiEnv
+    );
+  });
+  const concurrentRateLimitResults = await Promise.all(concurrentRateLimitPromises);
+  const rlAllowedCount = concurrentRateLimitResults.filter((r) => r === null).length;
+  const rlBlockedCount = concurrentRateLimitResults.filter((r) => r !== null && r.status === 429).length;
+  assert(
+    rlAllowedCount === 35 && rlBlockedCount === 5,
+    `Atomic D1 rate-limit upsert enforces exact 35-request quota under 40 concurrent requests (allowed=${rlAllowedCount}, blocked=${rlBlockedCount})`
+  );
+
+  // Deterministic cleanup of expired D1 rate-limit rows
+  await sqlite
+    .prepare('INSERT OR REPLACE INTO api_rate_limits (bucket_key, scope, count, reset_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+    .run('expired:test:bucket', 'ai', 5, Date.now() - 60_000, Date.now() - 120_000);
+  const prunedRateLimitRows = await pruneExpiredRateLimits(authEnv.DB!, Date.now());
+  assert(
+    prunedRateLimitRows >= 1,
+    'pruneExpiredRateLimits deterministically removes expired D1 api_rate_limits rows'
+  );
+
+  // Fail-closed 503 when D1 rate-limit storage fails on a billable AI endpoint
+  clearWorkerInMemoryRateLimits();
+  const brokenD1 = {
+    prepare() {
+      throw new Error('Simulated D1 storage outage');
+    },
+  } as unknown as D1Database;
+  const brokenD1AiRes = await workerDefault.fetch(
+    new Request('http://localhost/api/ai/mentor', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'CF-Connecting-IP': '198.51.100.89',
+      },
+      body: JSON.stringify({ question: 'سوال تست در زمان خطای D1' }),
+    }),
+    { ...validAiEnv, DB: brokenD1 },
+    mockCtx
+  );
+  assert(
+    brokenD1AiRes.status === 503,
+    'Billable AI endpoint fails closed with 503 Service Unavailable if D1 rate-limit storage throws an error'
+  );
+
+  // 16.4 Task 4: AI response cache TTL expiration, bounded payload size (413), and question-generation authentication + cap
+  await workerAiCache.setWithD1(
+    authEnv.DB!,
+    'سوال منقضی شده آزمایشی؟',
+    'پاسخ قدیمی که باید منقضی شود',
+    'فصل تست',
+    'gemini'
+  );
+  sqlite
+    .prepare('UPDATE ai_response_cache SET expires_at = ? WHERE question = ?')
+    .run(Date.now() - 60_000, 'سوال منقضی شده آزمایشی؟');
+  workerAiCache.clearMemoryOnly();
+  const expiredCacheLookup = await workerAiCache.getWithD1(
+    authEnv.DB!,
+    'سوال منقضی شده آزمایشی؟',
+    'فصل تست'
+  );
+  const expiredCacheRowAfterLookup = sqlite
+    .prepare('SELECT cache_key FROM ai_response_cache WHERE question = ?')
+    .get('سوال منقضی شده آزمایشی؟');
+  assert(
+    expiredCacheLookup === null && !expiredCacheRowAfterLookup,
+    'D1 AI cache never serves expired entries (expires_at <= now) and deletes expired rows upon lookup'
+  );
+
+  // Oversized JSON body (>16KB) rejected with 413 Payload Too Large
+  const hugePayload = JSON.stringify({
+    question: 'سوال کوتاه',
+    chapterTitle: 'فصل',
+    padding: 'الف'.repeat(20_000),
+  });
+  const oversizedBodyAiRes = await workerDefault.fetch(
+    new Request('http://localhost/api/ai/mentor', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'CF-Connecting-IP': '198.51.100.91',
+      },
+      body: hugePayload,
+    }),
+    validAiEnv,
+    mockCtx
+  );
+  assert(
+    oversizedBodyAiRes.status === 413,
+    'AI endpoints reject request bodies exceeding 16 KB with 413 Payload Too Large'
+  );
+
+  // Question generation rejects oversized chapterId (>64 chars) or chapterTitle (>200 chars) with 400 Bad Request
+  const oversizedChapterGenRes = await workerDefault.fetch(
+    new Request('http://localhost/api/quiz/bank/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'CF-Connecting-IP': '198.51.100.92',
+      },
+      body: JSON.stringify({
+        chapterId: 'ch_'.repeat(30),
+        chapterTitle: 'مفاهیم پایه روان‌شناسی',
+        difficulty: 'medium',
+      }),
+    }),
+    validAiEnv,
+    mockCtx
+  );
+  assert(
+    oversizedChapterGenRes.status === 400,
+    'POST /api/quiz/bank/generate rejects oversized chapterId (>64 chars) with 400 Bad Request'
+  );
+
+  // Valid question generation persists a validated question with bounded fields
+  const authGenQuestionRes = await workerDefault.fetch(
+    new Request('http://localhost/api/quiz/bank/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${s13Token}`,
+        'CF-Connecting-IP': '198.51.100.93',
+      },
+      body: JSON.stringify({
+        chapterId: 'ch1',
+        chapterTitle: 'مفاهیم پایه روان‌شناسی',
+        difficulty: 'medium',
+      }),
+    }),
+    validAiEnv,
+    mockCtx
+  );
+  const authGenQuestionJson = (await authGenQuestionRes.json()) as any;
+  assert(
+    authGenQuestionRes.status === 200 &&
+      authGenQuestionJson.success === true &&
+      typeof authGenQuestionJson.question?.id === 'string',
+    'POST /api/quiz/bank/generate succeeds for valid bounded inputs and persists the validated question in D1'
+  );
+
+  // 16.5 Task 5: Analytics visitorId anonymization and bounded D1 retention cleanup
+  const { anonymizeVisitorId, ANALYTICS_EVENTS_MAX_ROWS } = await import('../src/worker/analytics.ts');
+  const rawTestVisitorId = 'vis_raw_secret_identifier_999';
+  const expectedAnonId = anonymizeVisitorId(rawTestVisitorId);
+  assert(
+    expectedAnonId.startsWith('uv_') && expectedAnonId !== rawTestVisitorId,
+    'anonymizeVisitorId hashes raw client visitorId into a deterministic one-way uv_* digest'
+  );
+
+  await workerDefault.fetch(
+    new Request('http://localhost/api/analytics/track', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'CF-Connecting-IP': '198.51.100.94',
+      },
+      body: JSON.stringify({
+        visitorId: rawTestVisitorId,
+        sessionId: 'sess_anon_check_1',
+        device: 'desktop',
+        path: '/curriculum',
+        title: 'بررسی ناشناس‌سازی',
+      }),
+    }),
+    authEnv,
+    mockCtx
+  );
+
+  const todayIsoKey = new Date().toISOString().split('T')[0];
+  const dailyRowAfterTrack = sqlite
+    .prepare('SELECT unique_visitors FROM analytics_daily WHERE date = ?')
+    .get(todayIsoKey) as { unique_visitors: string } | undefined;
+  assert(
+    Boolean(dailyRowAfterTrack) &&
+      !dailyRowAfterTrack!.unique_visitors.includes(rawTestVisitorId) &&
+      dailyRowAfterTrack!.unique_visitors.includes(expectedAnonId),
+    'D1 analytics_daily stores only anonymized uv_* digests and never persists raw client visitorId strings'
+  );
+
+  // Insert an old daily row (>90 days old) and an old event (>7 days old) and verify pruneExpiredAnalytics deletes them
+  sqlite
+    .prepare(
+      'INSERT OR REPLACE INTO analytics_daily (date, visits, unique_visitors, updated_at) VALUES (?, ?, ?, ?)'
+    )
+    .run('2020-01-01', 10, '["uv_old"]', '2020-01-01T00:00:00.000Z');
+  sqlite
+    .prepare(
+      'INSERT OR REPLACE INTO analytics_events (id, timestamp, type, title, path, device) VALUES (?, ?, ?, ?, ?, ?)'
+    )
+    .run('ev_expired_old', '2020-01-01T00:00:00.000Z', 'pageview', 'رویداد قدیمی', '/old', 'mobile');
+
+  const pruneStats = await workerAnalyticsManager.pruneExpiredAnalytics(authEnv.DB!, new Date());
+  const oldDailyStillExists = sqlite
+    .prepare('SELECT date FROM analytics_daily WHERE date = ?')
+    .get('2020-01-01');
+  const oldEventStillExists = sqlite
+    .prepare('SELECT id FROM analytics_events WHERE id = ?')
+    .get('ev_expired_old');
+  const totalEventsCountRow = sqlite
+    .prepare('SELECT COUNT(*) as cnt FROM analytics_events')
+    .get() as { cnt: number };
+
+  assert(
+    pruneStats.deletedDailyRows >= 1 &&
+      pruneStats.deletedEventRows >= 1 &&
+      !oldDailyStillExists &&
+      !oldEventStillExists &&
+      totalEventsCountRow.cnt <= ANALYTICS_EVENTS_MAX_ROWS,
+    'pruneExpiredAnalytics deletes analytics_daily rows >90 days old, analytics_events rows >7 days old, and caps stored events at 200'
+  );
+
   console.log('\n====================================================');
   console.log(`ALL TESTS PASSED! (${passed} checks passed, ${failed} failed)`);
   console.log('====================================================\n');
@@ -2327,4 +3738,5 @@ runTestSuite().catch((err) => {
   console.error('\n❌ FATAL TEST FAILURE:', err);
   process.exit(1);
 });
+
 

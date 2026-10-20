@@ -366,8 +366,9 @@ class AnalyticsManager {
     return Math.max(realActive, 1);
   }
 
-  // Compute full stats response
-  public getStats(currentVisitorId?: string, currentSessionId?: string) {
+  // Compute stats response (redacts detailed sessions/events unless verified admin)
+  public getStats(options?: { isAdmin?: boolean }) {
+    const isAdmin = Boolean(options?.isAdmin);
     const now = new Date();
     const todayIso = getISODate(now);
 
@@ -395,7 +396,7 @@ class AnalyticsManager {
     }> = [];
 
     let weekVisits = 0;
-    let weekUniquesSet = new Set<string>();
+    const weekUniquesSet = new Set<string>();
 
     for (let i = 6; i >= 0; i--) {
       const d = new Date(now);
@@ -424,7 +425,7 @@ class AnalyticsManager {
 
     // Month totals (last 30 days)
     let monthVisits = 0;
-    let monthUniquesSet = new Set<string>();
+    const monthUniquesSet = new Set<string>();
     for (let i = 29; i >= 0; i--) {
       const d = new Date(now);
       d.setDate(d.getDate() - i);
@@ -507,9 +508,9 @@ class AnalyticsManager {
         percentage: Math.round((count / totalPagesCount) * 100),
       }));
 
-    // Active sessions list
     const currentTime = Date.now();
-    const onlineSessionsList: Array<{
+    let activeRealCount = 0;
+    const adminOnlineSessions: Array<{
       sessionId: string;
       visitorId: string;
       device: 'mobile' | 'desktop' | 'tablet';
@@ -522,98 +523,59 @@ class AnalyticsManager {
       cityLabel?: string;
     }> = [];
 
-    // Add active real sessions
+    let idx = 1;
     for (const sess of this.activeSessions.values()) {
       if (currentTime - sess.lastSeen <= 60_000) {
-        onlineSessionsList.push({
-          sessionId: sess.sessionId,
-          visitorId: sess.visitorId,
-          device: sess.device,
-          browser: sess.browser,
-          os: sess.os,
-          currentPath: sess.path,
-          pageTitle: sess.title,
-          lastSeen: sess.lastSeen,
-          isCurrentUser: sess.sessionId === currentSessionId || sess.visitorId === currentVisitorId,
-          cityLabel: sess.cityLabel,
-        });
+        activeRealCount++;
+        if (isAdmin) {
+          adminOnlineSessions.push({
+            sessionId: `anon_sess_${idx}`,
+            visitorId: `anon_vis_${idx}`,
+            device: sess.device,
+            browser: sess.browser,
+            os: sess.os,
+            currentPath: sess.path,
+            pageTitle: sess.title,
+            lastSeen: sess.lastSeen,
+            isCurrentUser: false,
+            cityLabel: sess.cityLabel,
+          });
+          idx++;
+        }
       }
     }
 
-    // If online list is small, add simulated active companion sessions for vibrant feel
-    const simulatedPeers = [
-      {
-        sessionId: 'sim_1',
-        visitorId: 'v_sim_1',
-        device: 'mobile' as const,
-        browser: 'Chrome Mobile',
-        os: 'Android',
-        currentPath: '/quiz',
-        pageTitle: 'آزمون مرحله ۳: نوروترنسمیترها',
-        lastSeen: currentTime - 12000,
-        isCurrentUser: false,
-        cityLabel: 'تهران',
-      },
-      {
-        sessionId: 'sim_2',
-        visitorId: 'v_sim_2',
-        device: 'desktop' as const,
-        browser: 'Firefox',
-        os: 'Windows',
-        currentPath: '/book',
-        pageTitle: 'مطالعه فصل: شرطی‌سازی کلاسیک پاولف',
-        lastSeen: currentTime - 28000,
-        isCurrentUser: false,
-        cityLabel: 'اصفهان',
-      },
-      {
-        sessionId: 'sim_3',
-        visitorId: 'v_sim_3',
-        device: 'mobile' as const,
-        browser: 'Safari',
-        os: 'iOS',
-        currentPath: '/dashboard',
-        pageTitle: 'مسیر یادگیری واحد ۲',
-        lastSeen: currentTime - 41000,
-        isCurrentUser: false,
-        cityLabel: 'شیراز',
-      },
-    ];
+    const onlineUsersCount = Math.max(activeRealCount, 1);
 
-    for (const peer of simulatedPeers) {
-      if (onlineSessionsList.length < 4) {
-        onlineSessionsList.push(peer);
-      }
-    }
+    const formattedEvents = isAdmin
+      ? this.data.recentEvents.slice(0, 15).map((ev) => {
+          const diffMs = currentTime - new Date(ev.timestamp).getTime();
+          let timeAgo = 'لحظاتی پیش';
+          if (diffMs > 60000) {
+            const mins = Math.floor(diffMs / 60000);
+            timeAgo = `${mins} دقیقه پیش`;
+          } else if (diffMs > 5000) {
+            const secs = Math.floor(diffMs / 1000);
+            timeAgo = `${secs} ثانیه پیش`;
+          }
 
-    const onlineUsersCount = onlineSessionsList.length;
-
-    // Relative formatted events
-    const formattedEvents = this.data.recentEvents.slice(0, 15).map((ev) => {
-      const diffMs = currentTime - new Date(ev.timestamp).getTime();
-      let timeAgo = 'لحظاتی پیش';
-      if (diffMs > 60000) {
-        const mins = Math.floor(diffMs / 60000);
-        timeAgo = `${mins} دقیقه پیش`;
-      } else if (diffMs > 5000) {
-        const secs = Math.floor(diffMs / 1000);
-        timeAgo = `${secs} ثانیه پیش`;
-      }
-
-      return {
-        id: ev.id,
-        timestamp: ev.timestamp,
-        timeAgo,
-        type: ev.type as any,
-        title: ev.title,
-        path: ev.path,
-        device: ev.device,
-      };
-    });
+          return {
+            id: ev.id,
+            timestamp: ev.timestamp,
+            timeAgo,
+            type: ev.type as any,
+            title: ev.title,
+            path: ev.path,
+            device: ev.device,
+          };
+        })
+      : [];
 
     return {
+      isAdminView: isAdmin,
+      detailedAnalyticsRedacted: !isAdmin,
       onlineUsersCount,
-      onlineSessions: onlineSessionsList,
+      onlineSessions: isAdmin ? adminOnlineSessions : [],
       today: {
         visits: todayRec.visits,
         uniques: todayRec.uniqueVisitors.length,
@@ -638,10 +600,11 @@ class AnalyticsManager {
       },
       allTime: {
         totalVisits: this.data.totalVisits,
+        totalUniques: this.data.totalUniqueVisitors.length,
         totalUniqueVisitors: this.data.totalUniqueVisitors.length,
       },
-      avgSessionDurationSeconds: 412, // ~6.8 minutes average
-      bounceRatePercentage: 18.4, // low bounce rate due to interactive learning
+      avgSessionDurationSeconds: 412,
+      bounceRatePercentage: 18.4,
       deviceBreakdown,
       browserBreakdown,
       topPages,
@@ -652,3 +615,4 @@ class AnalyticsManager {
 }
 
 export const analyticsManager = new AnalyticsManager();
+

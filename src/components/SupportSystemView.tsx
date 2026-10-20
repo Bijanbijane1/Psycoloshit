@@ -1,16 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { SupportTicket } from '../types/psychology';
 import {
   Send,
-  MessageSquare,
   Sparkles,
   HelpCircle,
   PlusCircle,
-  CheckCircle2,
-  ChevronDown,
+  GraduationCap,
 } from 'lucide-react';
-import { DuoMascot } from './DuoMascot';
 import { playDuoSound } from '../utils/duoAudio';
+import { streamMentorResponse, requestMentorResponse } from '../services/aiClient';
+import { toPersianDigits } from '../utils/persianDigits';
 
 interface SupportSystemViewProps {
   tickets: SupportTicket[];
@@ -38,12 +37,22 @@ export const SupportSystemView: React.FC<SupportSystemViewProps> = ({
     {
       id: 'msg-1',
       sender: 'mentor',
-      text: 'سلام دوست من! من سوپر دوئو (Super Duo)، مربی هوشمند روان‌شناسی تو هستم. 🦉 هر سوالی درباره مفاهیم درسی، مکاتب، تشخیص‌های بالینی، یا رفع اشکال تست‌ها داری بپرس تا با هم حلش کنیم!',
+      text: 'سلام پژوهشگر گرامی! من استاد راهنمای هوشمند روان‌مستر هستم. هر پرسشی درباره مفاهیم درسی، مکاتب روان‌شناسی، تشخیص‌های بالینی، یا تحلیل گزینه‌های کنکور دارید بپرسید تا با هم بررسی کنیم.',
       time: 'هم‌اکنون',
     },
   ]);
   const [inputQuestion, setInputQuestion] = useState<string>('');
   const [isAiReplying, setIsAiReplying] = useState<boolean>(false);
+  const streamAbortControllerRef = useRef<AbortController | null>(null);
+
+  // Abort any in-flight SSE stream on unmount (Task 1D)
+  useEffect(() => {
+    return () => {
+      if (streamAbortControllerRef.current) {
+        streamAbortControllerRef.current.abort();
+      }
+    };
+  }, []);
 
   // New ticket state
   const [newTicketTitle, setNewTicketTitle] = useState<string>('');
@@ -68,6 +77,13 @@ export const SupportSystemView: React.FC<SupportSystemViewProps> = ({
     const question = textToSend || inputQuestion;
     if (!question.trim()) return;
 
+    // Abort any previous in-flight SSE stream before starting a new one
+    if (streamAbortControllerRef.current) {
+      streamAbortControllerRef.current.abort();
+    }
+    const abortController = new AbortController();
+    streamAbortControllerRef.current = abortController;
+
     playDuoSound('click');
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
@@ -91,95 +107,46 @@ export const SupportSystemView: React.FC<SupportSystemViewProps> = ({
       },
     ]);
 
-    try {
-      const res = await fetch('/api/ai/mentor/stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          question,
-          chapterContext: selectedChapterTitle || 'کلیات روان‌شناسی آکادمیک',
-          chapterTitle: selectedChapterTitle || 'کلیات روان‌شناسی',
-        }),
-      });
-
-      if (!res.ok || !res.body) {
-        throw new Error('Streaming failed');
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let accumulated = '';
-      let isFirstChunk = true;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const dataStr = line.replace('data: ', '').trim();
-            if (dataStr === '[DONE]') break;
-
-            try {
-              const parsed = JSON.parse(dataStr);
-              if (parsed.text) {
-                if (isFirstChunk) {
-                  accumulated = parsed.text;
-                  isFirstChunk = false;
-                } else {
-                  accumulated += parsed.text;
-                }
-
-                setChatMessages((prev) =>
-                  prev.map((msg) =>
-                    msg.id === mentorMsgId ? { ...msg, text: accumulated } : msg
-                  )
-                );
-              }
-            } catch {}
+    await streamMentorResponse(
+      {
+        question,
+        chapterContext: selectedSectionTitle || selectedChapterTitle || 'کلیات روان‌شناسی آکادمیک',
+        chapterTitle: selectedChapterTitle || 'کلیات روان‌شناسی',
+      },
+      {
+        signal: abortController.signal,
+        onChunk: (_delta, fullText) => {
+          setChatMessages((prev) =>
+            prev.map((msg) => (msg.id === mentorMsgId ? { ...msg, text: fullText } : msg))
+          );
+        },
+        onComplete: (fullText) => {
+          if (fullText) {
+            setChatMessages((prev) =>
+              prev.map((msg) => (msg.id === mentorMsgId ? { ...msg, text: fullText } : msg))
+            );
           }
-        }
-      }
-
-      playDuoSound('correct');
-    } catch {
-      // Fallback to standard request
-      try {
-        const res = await fetch('/api/ai/mentor', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+          playDuoSound('correct');
+          setIsAiReplying(false);
+        },
+        onError: async (errMsg) => {
+          if (abortController.signal.aborted) return;
+          const fallbackRes = await requestMentorResponse({
             question,
-            chapterTitle: selectedChapterTitle || 'کلیات روان‌شناسی آکادمیک',
-          }),
-        });
-        const data = await res.json().catch(() => ({}));
-        const replyText =
-          data.reply ||
-          'پاسخ علمی ثبت شد. برای درک عمیق‌تر پیشنهاد می‌کنیم بخش مربوطه در کتابچه آفلاین را مرور کنید.';
-
-        setChatMessages((prev) =>
-          prev.map((msg) => (msg.id === mentorMsgId ? { ...msg, text: replyText } : msg))
-        );
-        playDuoSound('correct');
-      } catch {
-        setChatMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === mentorMsgId
-              ? {
-                  ...msg,
-                  text: 'دوست خوبم، ارتباط با سرویس آنلاین موقتاً قطع شد، اما طبق اصول روان‌شناسی شناختی، سازمان‌دهی مجدد اطلاعات و بازیابی فعال بهترین راه یادگیری است. مجدداً سوال خود را بپرسید.',
-                }
-              : msg
-          )
-        );
+            chapterContext: selectedSectionTitle || selectedChapterTitle || 'کلیات روان‌شناسی آکادمیک',
+            chapterTitle: selectedChapterTitle || 'کلیات روان‌شناسی',
+          });
+          setChatMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === mentorMsgId
+                ? { ...msg, text: fallbackRes.text || errMsg }
+                : msg
+            )
+          );
+          setIsAiReplying(false);
+        },
       }
-    } finally {
-      setIsAiReplying(false);
-    }
+    );
   };
 
   const handleCreateTicket = (e: React.FormEvent) => {
@@ -202,53 +169,55 @@ export const SupportSystemView: React.FC<SupportSystemViewProps> = ({
   };
 
   return (
-    <div className="max-w-4xl mx-auto flex flex-col gap-6 pb-24 select-none animate-fadeIn">
-      {/* Super Duo Header Banner */}
-      <div className="bg-gradient-to-r from-[#CE82FF] to-[#8035CE] border-b-4 border-[#A557DF] rounded-3xl p-5 sm:p-6 text-white shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div className="flex items-center gap-3 sm:gap-4 text-right">
-          <DuoMascot mood="super" size={56} animate={false} />
+    <div className="max-w-4xl mx-auto flex flex-col gap-6 pb-28 select-none animate-fadeIn">
+      {/* Editorial Academic Mentor Header Banner */}
+      <div className="bg-[#36345F] border border-[#4A477A] rounded-3xl p-5 sm:p-6 text-white shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5 sm:gap-4 text-right">
+          <div className="w-14 h-14 rounded-2xl bg-[#EAE4FF]/15 border border-[#EAE4FF]/25 flex items-center justify-center text-[#EAE4FF] shrink-0">
+            <GraduationCap className="w-7 h-7" />
+          </div>
           <div>
-            <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider bg-white/20 px-2.5 py-0.5 rounded-full inline-block">
-              SUPER DUO AI TUTOR
+            <span className="text-[10px] sm:text-[11px] font-extrabold tracking-wider bg-[#7056D8]/45 border border-[#EAE4FF]/25 px-2.5 py-0.5 rounded-full inline-block text-[#EAE4FF]">
+              استودیو مشاوره و رفع اشکال علمی
             </span>
-            <h1 className="text-xl sm:text-2xl font-black mt-1">مربی هوش مصنوعی و رفع اشکال</h1>
-            <p className="text-[11px] sm:text-xs font-bold opacity-90 mt-0.5">
-              پاسخگویی آنی به پرسش‌های علمی با هوش مصنوعی و مربیان روان‌شناسی
+            <h1 className="text-xl sm:text-2xl font-black mt-1 text-white">استاد راهنما و منتور هوشمند</h1>
+            <p className="text-[11px] sm:text-xs font-medium text-[#EAE4FF]/85 mt-0.5">
+              پاسخگویی تحلیلی به پرسش‌های مفهومی، بالینی و تستی روان‌شناسی
             </p>
           </div>
         </div>
 
         {/* Tab pills */}
-        <div className="flex items-center bg-white/20 p-1 rounded-2xl border border-white/30 w-full md:w-auto justify-around overflow-x-auto">
+        <div className="flex items-center bg-white/10 p-1 rounded-2xl border border-white/20 w-full md:w-auto justify-around overflow-x-auto gap-1">
           <button
             onClick={() => {
               playDuoSound('click');
               setSupportTab('mentor');
             }}
-            className={`px-3 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex-1 md:flex-initial text-center ${
-              supportTab === 'mentor' ? 'bg-white text-[#8035CE] shadow-xs' : 'text-white'
+            className={`min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer flex-1 md:flex-initial text-center whitespace-nowrap ${
+              supportTab === 'mentor' ? 'bg-white text-[#36345F] shadow-2xs' : 'text-white/90 hover:text-white'
             }`}
           >
-            گفتگو با Duo 🦉
+            گفتگو با استاد راهنما
           </button>
           <button
             onClick={() => {
               playDuoSound('click');
               setSupportTab('tickets');
             }}
-            className={`px-3 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex-1 md:flex-initial text-center ${
-              supportTab === 'tickets' ? 'bg-white text-[#8035CE] shadow-xs' : 'text-white'
+            className={`min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer flex-1 md:flex-initial text-center whitespace-nowrap ${
+              supportTab === 'tickets' ? 'bg-white text-[#36345F] shadow-2xs' : 'text-white/90 hover:text-white'
             }`}
           >
-            تیکت‌ها ({tickets.length})
+            تیکت‌ها ({toPersianDigits(tickets.length)})
           </button>
           <button
             onClick={() => {
               playDuoSound('click');
               setSupportTab('faq');
             }}
-            className={`px-3 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex-1 md:flex-initial text-center ${
-              supportTab === 'faq' ? 'bg-white text-[#8035CE] shadow-xs' : 'text-white'
+            className={`min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer flex-1 md:flex-initial text-center whitespace-nowrap ${
+              supportTab === 'faq' ? 'bg-white text-[#36345F] shadow-2xs' : 'text-white/90 hover:text-white'
             }`}
           >
             پرسش‌های متداول
@@ -257,53 +226,56 @@ export const SupportSystemView: React.FC<SupportSystemViewProps> = ({
       </div>
 
       {/* ======================================================== */}
-      {/* TAB 1: DUO AI LIVE CHAT                                  */}
+      {/* TAB 1: ACADEMIC AI MENTOR LIVE CHAT                      */}
       {/* ======================================================== */}
       {supportTab === 'mentor' && (
-        <div className="bg-white border-2 border-b-4 border-slate-200 rounded-3xl p-5 sm:p-6 shadow-xs flex flex-col gap-4">
+        <div className="bg-white border border-[#E5E1EB] rounded-3xl p-4 sm:p-6 shadow-2xs flex flex-col gap-4">
           {/* Quick prompt suggestion chips */}
           <div className="flex flex-wrap gap-2">
             {quickPrompts.map((prompt, idx) => (
               <button
                 key={idx}
                 onClick={() => handleSendMessage(prompt)}
-                className="bg-purple-50 hover:bg-purple-100 text-[#8035CE] border border-purple-200 rounded-xl px-3 py-1.5 text-xs font-black transition-colors cursor-pointer text-right"
+                className="min-h-[44px] bg-[#F7F5F0] hover:bg-[#EAE4FF]/60 text-[#36345F] border border-[#E5E1EB] hover:border-[#7056D8]/40 rounded-xl px-3.5 py-2 text-xs font-bold transition-colors cursor-pointer text-right flex items-center gap-1.5"
               >
-                ⚡ {prompt}
+                <Sparkles className="w-3.5 h-3.5 text-[#7056D8] shrink-0" />
+                <span>{prompt}</span>
               </button>
             ))}
           </div>
 
           {/* Chat Messages Log */}
-          <div className="flex flex-col gap-3.5 my-2 max-h-[460px] overflow-y-auto p-2">
+          <div className="flex flex-col gap-3.5 my-2 max-h-[460px] overflow-y-auto touch-scroll p-1 sm:p-2">
             {chatMessages.map((msg) => {
-              const isDuo = msg.sender === 'mentor';
+              const isMentor = msg.sender === 'mentor';
               return (
                 <div
                   key={msg.id}
-                  className={`flex items-start gap-3 ${
-                    isDuo ? 'flex-row' : 'flex-row-reverse'
+                  className={`flex items-start gap-2.5 sm:gap-3 ${
+                    isMentor ? 'flex-row' : 'flex-row-reverse'
                   }`}
                 >
-                  {isDuo ? (
-                    <DuoMascot mood="tutor" size={42} animate={false} />
+                  {isMentor ? (
+                    <div className="w-10 h-10 rounded-2xl bg-[#EAE4FF] border border-[#7056D8]/25 text-[#7056D8] flex items-center justify-center shrink-0">
+                      <GraduationCap className="w-5 h-5" />
+                    </div>
                   ) : (
-                    <div className="w-10 h-10 rounded-full bg-[#1CB0F6] text-white flex items-center justify-center font-black text-sm shrink-0">
+                    <div className="w-10 h-10 rounded-2xl bg-[#36345F] text-white flex items-center justify-center font-extrabold text-xs shrink-0">
                       شما
                     </div>
                   )}
 
                   <div
                     className={`max-w-xl p-4 rounded-2xl text-xs sm:text-sm font-bold leading-relaxed ${
-                      isDuo
-                        ? 'bg-purple-50/80 border-2 border-purple-200 text-purple-950 text-right'
-                        : 'bg-[#1CB0F6] text-white text-right'
+                      isMentor
+                        ? 'bg-[#F7F5F0] border border-[#E5E1EB] text-[#24243B] text-right'
+                        : 'bg-[#7056D8] text-white text-right'
                     }`}
                   >
                     <p className="whitespace-pre-line">{msg.text}</p>
                     <span
-                      className={`text-[9px] block mt-1.5 ${
-                        isDuo ? 'text-purple-400' : 'text-sky-100'
+                      className={`text-[10px] block mt-1.5 ${
+                        isMentor ? 'text-[#69697E]' : 'text-[#EAE4FF]'
                       }`}
                     >
                       {msg.time}
@@ -315,31 +287,34 @@ export const SupportSystemView: React.FC<SupportSystemViewProps> = ({
 
             {isAiReplying && (
               <div className="flex items-center gap-3">
-                <DuoMascot mood="thinking" size={42} animate={false} />
-                <div className="p-3 bg-purple-50 border border-purple-200 rounded-2xl text-xs font-black text-purple-700 animate-pulse">
-                  Duo در حال نگارش پاسخ علمی و دقیق است...
+                <div className="w-10 h-10 rounded-2xl bg-[#EAE4FF] border border-[#7056D8]/25 text-[#7056D8] flex items-center justify-center shrink-0">
+                  <Sparkles className="w-5 h-5 animate-pulse" />
+                </div>
+                <div className="p-3 bg-[#EAE4FF]/50 border border-[#7056D8]/25 rounded-2xl text-xs font-extrabold text-[#36345F] animate-pulse">
+                  استاد راهنما در حال تدوین پاسخ علمی و تحلیلی است...
                 </div>
               </div>
             )}
           </div>
 
           {/* Chat Input Bar */}
-          <div className="pt-3 border-t-2 border-slate-100 flex items-center gap-2">
+          <div className="pt-3 border-t border-[#E5E1EB] flex items-center gap-2">
             <input
               type="text"
               value={inputQuestion}
               onChange={(e) => setInputQuestion(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
               placeholder="پرسش خود را درباره مکاتب، تشخیص‌ها یا نظریه‌ها بنویسید..."
-              className="flex-1 px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-2xl text-base sm:text-xs font-bold text-slate-800 outline-none focus:border-[#CE82FF] focus:bg-white min-h-[44px]"
+              className="flex-1 px-4 py-3 bg-[#F7F5F0] border border-[#E5E1EB] rounded-2xl text-base lg:text-xs font-bold text-[#24243B] outline-none focus:border-[#7056D8] focus:bg-white min-h-[48px]"
             />
             <button
               onClick={() => handleSendMessage()}
               disabled={!inputQuestion.trim() || isAiReplying}
-              className={`p-3 rounded-2xl cursor-pointer ${
+              aria-label="ارسال پرسش"
+              className={`min-w-[48px] min-h-[48px] p-3 rounded-2xl flex items-center justify-center transition-colors ${
                 inputQuestion.trim() && !isAiReplying
-                  ? 'duo-btn-purple'
-                  : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                  ? 'editorial-btn-primary cursor-pointer'
+                  : 'bg-[#E5E1EB] text-[#69697E] cursor-not-allowed'
               }`}
             >
               <Send className="w-5 h-5 rtl:rotate-180" />
@@ -353,13 +328,13 @@ export const SupportSystemView: React.FC<SupportSystemViewProps> = ({
       {/* ======================================================== */}
       {supportTab === 'tickets' && (
         <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-black text-slate-600">
-              تیکت‌های ارسال شده برای اساتید و هیئت علمی
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <span className="text-xs font-extrabold text-[#69697E]">
+              تیکت‌های ارسال شده برای اساتید و هیئت علمی ({toPersianDigits(tickets.length)} مورد)
             </span>
             <button
               onClick={() => setShowNewTicketForm(!showNewTicketForm)}
-              className="duo-btn-green px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer"
+              className="editorial-btn-leaf min-h-[44px] px-4 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
             >
               <PlusCircle className="w-4 h-4" />
               <span>ثبت پرسش جدید</span>
@@ -369,33 +344,33 @@ export const SupportSystemView: React.FC<SupportSystemViewProps> = ({
           {showNewTicketForm && (
             <form
               onSubmit={handleCreateTicket}
-              className="bg-white border-2 border-b-4 border-slate-200 rounded-3xl p-5 flex flex-col gap-3 shadow-xs animate-fadeIn"
+              className="bg-white border border-[#E5E1EB] rounded-3xl p-5 flex flex-col gap-3 shadow-2xs animate-fadeIn"
             >
-              <h3 className="text-sm font-black text-slate-800">فرم ارسال پرسش به اساتید</h3>
+              <h3 className="text-sm font-black text-[#24243B]">فرم ارسال پرسش به اساتید</h3>
               <input
                 type="text"
                 value={newTicketTitle}
                 onChange={(e) => setNewTicketTitle(e.target.value)}
                 placeholder="عنوان پرسش (مثال: ابهام در آزمون اندریافت موضوع TAT)..."
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-[#58CC02]"
+                className="w-full px-3.5 py-2.5 bg-[#F7F5F0] border border-[#E5E1EB] rounded-xl text-base lg:text-xs font-bold text-[#24243B] outline-none focus:border-[#7056D8] focus:bg-white min-h-[44px]"
               />
               <textarea
                 value={newTicketText}
                 onChange={(e) => setNewTicketText(e.target.value)}
                 placeholder="شرح کامل پرسش یا تست مورد نظر..."
-                className="w-full h-24 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-[#58CC02] resize-none"
+                className="w-full h-24 p-3.5 bg-[#F7F5F0] border border-[#E5E1EB] rounded-xl text-base lg:text-xs font-bold text-[#24243B] outline-none focus:border-[#7056D8] focus:bg-white resize-none"
               />
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setShowNewTicketForm(false)}
-                  className="px-3 py-1.5 text-xs font-bold text-slate-400 hover:text-slate-600 cursor-pointer"
+                  className="min-h-[44px] px-4 py-2 rounded-xl text-xs font-bold text-[#69697E] hover:text-[#24243B] hover:bg-[#F7F5F0] cursor-pointer"
                 >
                   انصراف
                 </button>
                 <button
                   type="submit"
-                  className="duo-btn-green px-4 py-2 rounded-xl text-xs font-black cursor-pointer"
+                  className="editorial-btn-primary min-h-[44px] px-4 py-2 rounded-xl text-xs font-extrabold cursor-pointer"
                 >
                   ارسال تیکت
                 </button>
@@ -406,24 +381,24 @@ export const SupportSystemView: React.FC<SupportSystemViewProps> = ({
           {tickets.map((t) => (
             <div
               key={t.id}
-              className="bg-white border-2 border-b-4 border-slate-200 rounded-3xl p-5 shadow-xs flex flex-col gap-2"
+              className="bg-white border border-[#E5E1EB] rounded-3xl p-5 shadow-2xs flex flex-col gap-2"
             >
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-black text-slate-800">{t.title}</h4>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <h4 className="text-sm font-black text-[#24243B]">{t.title}</h4>
                 <span
-                  className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                  className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border ${
                     t.status === 'answered'
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : 'bg-amber-100 text-amber-800'
+                      ? 'bg-[#DDF3E9] text-[#134E4A] border-[#149D9A]/30'
+                      : 'bg-[#FFF0C8] text-[#5C3D0E] border-[#E5A33D]/40'
                   }`}
                 >
                   {t.status === 'answered' ? 'پاسخ داده شده' : 'در حال بررسی توسط استاد'}
                 </span>
               </div>
-              <p className="text-xs font-bold text-slate-600">{t.question}</p>
+              <p className="text-xs font-bold text-[#69697E] leading-relaxed">{t.question}</p>
               {t.reply && (
-                <div className="mt-2 p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs font-bold text-slate-800">
-                  <span className="text-[10px] font-black text-[#58CC02] block mb-1">
+                <div className="mt-2 p-3.5 bg-[#F7F5F0] rounded-2xl border border-[#E5E1EB] text-xs font-bold text-[#24243B] leading-relaxed">
+                  <span className="text-[11px] font-extrabold text-[#149D9A] block mb-1">
                     پاسخ هیئت علمی:
                   </span>
                   <p>{t.reply}</p>
@@ -450,18 +425,18 @@ export const SupportSystemView: React.FC<SupportSystemViewProps> = ({
             },
             {
               q: 'آیا می‌توانم روی سیستم صوتی مرورگر متون را بشنوم؟',
-              a: 'بله! در بخش کتابچه راهنما، با فشردن دکمه «گوش دادن» سیستم صوتی فارسی مرورگر کل متن یا مبحث انتخابی را برای شما می‌خواند.',
+              a: 'بله! در بخش کتابچه راهنما، با فشردن دکمه «خوانش صوتی» سیستم صوتی فارسی مرورگر کل متن یا مبحث انتخابی را برای شما می‌خواند.',
             },
           ].map((faq, i) => (
             <div
               key={i}
-              className="bg-white border-2 border-b-4 border-slate-200 rounded-2xl p-4 shadow-xs text-right"
+              className="bg-white border border-[#E5E1EB] rounded-2xl p-4 sm:p-5 shadow-2xs text-right"
             >
-              <h4 className="text-xs font-black text-slate-800 flex items-center gap-2">
-                <HelpCircle className="w-4 h-4 text-[#1CB0F6]" />
+              <h4 className="text-xs sm:text-sm font-black text-[#24243B] flex items-center gap-2">
+                <HelpCircle className="w-4 h-4 text-[#7056D8] shrink-0" />
                 <span>{faq.q}</span>
               </h4>
-              <p className="text-xs font-bold text-slate-600 mt-2 leading-relaxed">{faq.a}</p>
+              <p className="text-xs font-bold text-[#69697E] mt-2 leading-relaxed">{faq.a}</p>
             </div>
           ))}
         </div>
@@ -469,3 +444,4 @@ export const SupportSystemView: React.FC<SupportSystemViewProps> = ({
     </div>
   );
 };
+

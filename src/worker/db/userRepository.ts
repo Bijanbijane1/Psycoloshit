@@ -153,7 +153,11 @@ export class D1UserRepository {
       profile.completedStages && typeof profile.completedStages === 'object' && !Array.isArray(profile.completedStages)
         ? profile.completedStages
         : {};
-    const cleanCompletedStages = sanitizeCompletedStages(existing?.completedStages, safeStages);
+    const verifiedStageNumbers = await this.getVerifiedCompletedStageNumbers(cleanUserId);
+    const cleanCompletedStages = sanitizeCompletedStages(existing?.completedStages, safeStages, {
+      verifiedStageNumbers,
+      markIncomingVerified: false,
+    });
 
     const safeBadges = Array.isArray(profile.unlockedBadgeIds)
       ? profile.unlockedBadgeIds.filter((b): b is string => typeof b === 'string' && b.trim().length > 0)
@@ -334,11 +338,24 @@ export class D1UserRepository {
         ? incomingAvatar
         : null;
 
+    const verifiedStagesForAward = stageRecord
+      ? await this.getVerifiedCompletedStageNumbers(cleanUserId)
+      : undefined;
+    if (stageRecord && verifiedStagesForAward) {
+      verifiedStagesForAward.add(stageRecord.stageNumber);
+    }
     const updatedCompletedStagesJson = stageRecord
       ? JSON.stringify(
-          sanitizeCompletedStages(existingUser.completedStages, {
-            [String(stageRecord.stageNumber)]: stageRecord,
-          })
+          sanitizeCompletedStages(
+            existingUser.completedStages,
+            {
+              [String(stageRecord.stageNumber)]: stageRecord,
+            },
+            {
+              verifiedStageNumbers: verifiedStagesForAward,
+              markIncomingVerified: true,
+            }
+          )
         )
       : null;
 
@@ -979,9 +996,19 @@ export class D1UserRepository {
     );
 
     // Merge completed stages (sanitized sequential chain with canonical XP values)
+    const targetVerifiedStages = await this.getVerifiedCompletedStageNumbers(targetUserId);
+    const guestVerifiedStages = await this.getVerifiedCompletedStageNumbers(guestUserId);
+    const combinedVerifiedStages = new Set<number>([
+      ...targetVerifiedStages,
+      ...guestVerifiedStages,
+    ]);
     const mergedStages = sanitizeCompletedStages(
       targetUser.completedStages,
-      guestSource.completedStages
+      guestSource.completedStages,
+      {
+        verifiedStageNumbers: combinedVerifiedStages,
+        markIncomingVerified: false,
+      }
     );
 
     const rawGuestMinutes = Number(guestSource.totalStudyMinutes) || 0;

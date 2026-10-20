@@ -498,33 +498,40 @@ export const SiteTrafficAnalyticsModal: React.FC<SiteTrafficAnalyticsModalProps>
                     );
                   })
                 ) : (
-                  <div className="p-8 text-center text-slate-400 font-bold text-sm">
-                    در حال دریافت وضعیت جلسات آنلاین...
+                  <div className="p-6 text-center text-slate-500 font-bold text-xs sm:text-sm space-y-1">
+                    <p className="text-slate-700 font-black">
+                      حفاظت از حریم خصوصی کاربران فعال است ({data?.onlineUsersCount || 1} کاربر آنلاین هم‌اکنون)
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      مشاهده جزئیات نشست‌های فردی و شناسه بازدیدکنندگان تنها برای مدیران تأییدشده سامانه مجاز است.
+                    </p>
                   </div>
                 )}
               </div>
 
-              {/* Live Activity Stream */}
-              <div className="mt-6">
-                <h4 className="text-sm font-black text-slate-800 mb-3 flex items-center gap-2">
-                  <Activity className="w-4 h-4 text-[#1CB0F6]" />
-                  جریان فعالیت‌های زنده یادگیرندگان
-                </h4>
-                <div className="space-y-2">
-                  {data?.recentEvents && data.recentEvents.slice(0, 8).map((ev) => (
-                    <div
-                      key={ev.id}
-                      className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs font-bold gap-2 text-right"
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="w-2 h-2 rounded-full bg-[#1CB0F6] shrink-0"></span>
-                        <span className="text-slate-800 truncate">{ev.title}</span>
+              {/* Live Activity Stream (shown only when detailed events are authorized) */}
+              {data?.recentEvents && data.recentEvents.length > 0 && (
+                <div className="mt-6">
+                  <h4 className="text-sm font-black text-slate-800 mb-3 flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-[#1CB0F6]" />
+                    جریان فعالیت‌های زنده یادگیرندگان
+                  </h4>
+                  <div className="space-y-2">
+                    {data.recentEvents.slice(0, 8).map((ev) => (
+                      <div
+                        key={ev.id}
+                        className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs font-bold gap-2 text-right"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="w-2 h-2 rounded-full bg-[#1CB0F6] shrink-0"></span>
+                          <span className="text-slate-800 truncate">{ev.title}</span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 shrink-0">{ev.timeAgo}</span>
                       </div>
-                      <span className="text-[10px] text-slate-400 shrink-0">{ev.timeAgo}</span>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
 

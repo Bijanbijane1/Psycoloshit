@@ -2,12 +2,14 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { psychologySections } from './data/psychologyCurriculum';
 import { Chapter, UserProgress, SupportTicket, DifficultyLevel, StageCompletionRecord } from './types/psychology';
 import { BadgeDefinition } from './types/badges';
-import { BADGE_DEFINITIONS, getAllBadgeProgress, findNewlyUnlockedBadges } from './data/badgeDefinitions';
-import { loadUserProgress, saveUserProgress, loadSupportTickets, saveSupportTickets, getDefaultUserProgress } from './utils/storage';
-import { Navbar } from './components/Navbar';
+import { getAllBadgeProgress, findNewlyUnlockedBadges } from './data/badgeDefinitions';
+import { loadUserProgress, saveUserProgress, loadSupportTickets, saveSupportTickets, getDefaultUserProgress, mergeCompletedStages } from './utils/storage';
+import { Navbar, AppPrimaryTab } from './components/Navbar';
 import { DashboardView } from './components/DashboardView';
+import { LearningView, LearningSubMode } from './components/LearningView';
+import { UserPanelView, UserPanelSubView } from './components/UserPanelView';
 import { BookReaderView } from './components/BookReaderView';
-import { QuizCenterView } from './components/QuizCenterView';
+import { QuizCenterView, QuizCenterSubMode } from './components/QuizCenterView';
 import { BadgesView } from './components/BadgesView';
 import { BadgeUnlockModal } from './components/BadgeUnlockModal';
 import { AnalyticsView } from './components/AnalyticsView';
@@ -20,6 +22,7 @@ import { StageExecutionProvider } from './context/StageExecutionContext';
 import { PomodoroTimerModal } from './components/PomodoroTimerModal';
 import { SiteTrafficAnalyticsModal } from './components/SiteTrafficAnalyticsModal';
 import { ReportExportModal } from './components/ReportExportModal';
+import { OfflineSafeErrorBoundary } from './components/OfflineSafeErrorBoundary';
 import { trackSiteEvent, sendHeartbeatPing } from './utils/siteTracker';
 import { syncProgressToCloud, submitScoreToLeaderboard } from './utils/cloudSync';
 import { usePWAInstall } from './utils/usePWAInstall';
@@ -30,9 +33,14 @@ import { UserAccountModal } from './components/UserAccountModal';
 import { GuestMergeModal } from './components/GuestMergeModal';
 
 function AppContent() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'book' | 'quiz' | 'analytics' | 'badges' | 'support' | 'notes'>('dashboard');
+  const [activeTab, setActiveTab] = useState<AppPrimaryTab>('dashboard');
+  const [learningSubMode, setLearningSubMode] = useState<LearningSubMode>('stages_100');
+  const [userPanelSubView, setUserPanelSubView] = useState<UserPanelSubView>('overview');
+
   const [currentChapter, setCurrentChapter] = useState<Chapter>(psychologySections[0].chapters[0]);
   const [quizTargetChapter, setQuizTargetChapter] = useState<Chapter | null>(null);
+  const [quizSubMode, setQuizSubMode] = useState<QuizCenterSubMode>('entrance_exam');
+  const [examAttemptIdToReview, setExamAttemptIdToReview] = useState<string | null>(null);
 
   const [progress, setProgress] = useState<UserProgress>(() => loadUserProgress());
   const [tickets, setTickets] = useState<SupportTicket[]>(loadSupportTickets);
@@ -46,11 +54,14 @@ function AppContent() {
   const [isTrafficModalOpen, setIsTrafficModalOpen] = useState<boolean>(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState<boolean>(false);
   const [onlineCount, setOnlineCount] = useState<number>(1);
+  const [isSyncingCloud, setIsSyncingCloud] = useState<boolean>(false);
   const { isOffline } = usePWAInstall();
   const { currentUser, isLoading: isAuthLoading, isGoogleSignInModalOpen, setIsGoogleSignInModalOpen } = useAuth();
   const lastLoadedUserIdRef = useRef<string | null>(null);
+  const progressRef = useRef<UserProgress>(progress);
+  progressRef.current = progress;
 
-  // Sync authenticated Google user data into local study progress
+  // Sync authenticated Google user data into local study progress using Golden Invariant merge
   useEffect(() => {
     if (currentUser) {
       const isSwitchingUser = lastLoadedUserIdRef.current !== currentUser.userId;
@@ -64,10 +75,10 @@ function AppContent() {
         const mergedBookmarks = Array.from(
           new Set([...(base.bookmarkedChapters || []), ...(currentUser.bookmarkedChapters || [])])
         );
-        const mergedStages = {
-          ...(base.completedStages || {}),
-          ...((currentUser.completedStages as Record<string, StageCompletionRecord>) || {}),
-        };
+        const mergedStages = mergeCompletedStages(
+          base.completedStages,
+          (currentUser.completedStages as Record<string, StageCompletionRecord>) || null
+        );
         const mergedBadges = Array.from(
           new Set([...(base.unlockedBadgeIds || []), ...(currentUser.unlockedBadgeIds || [])])
         );
@@ -83,6 +94,32 @@ function AppContent() {
       });
     }
   }, [currentUser]);
+
+  // Hydrate server-verified completedStages whenever `/api/user/sync` or `/api/leaderboard/submit` completes
+  useEffect(() => {
+    const handleUserSynced = (e: Event) => {
+      const customEvent = e as CustomEvent<any>;
+      const syncedProfile = customEvent.detail;
+      if (!syncedProfile || !syncedProfile.completedStages) return;
+
+      setProgress((prev) => {
+        const mergedStages = mergeCompletedStages(
+          prev.completedStages,
+          syncedProfile.completedStages
+        );
+        const prevJson = JSON.stringify(prev.completedStages || {});
+        const nextJson = JSON.stringify(mergedStages);
+        if (prevJson === nextJson) return prev;
+        return {
+          ...prev,
+          completedStages: mergedStages,
+        };
+      });
+    };
+
+    window.addEventListener('psychomaster:user-synced', handleUserSynced);
+    return () => window.removeEventListener('psychomaster:user-synced', handleUserSynced);
+  }, []);
 
   // Reset local progress when user logs out
   useEffect(() => {
@@ -131,10 +168,37 @@ function AppContent() {
   // Sync progress to localStorage & Cloud (wait until initial auth session check finishes)
   useEffect(() => {
     saveUserProgress(progress, currentUser?.userId);
-    if (!isAuthLoading) {
-      syncProgressToCloud(progress);
+    if (!isAuthLoading && !isOffline) {
+      let active = true;
+      setIsSyncingCloud(true);
+      syncProgressToCloud(progress).finally(() => {
+        if (active) setIsSyncingCloud(false);
+      });
+      return () => {
+        active = false;
+      };
     }
-  }, [progress, isAuthLoading, currentUser?.userId]);
+  }, [progress, isAuthLoading, currentUser?.userId, isOffline]);
+
+  // Debounced Auto-Sync on Reconnect (`window` `online` event)
+  useEffect(() => {
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const handleOnlineReconnect = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        setIsSyncingCloud(true);
+        syncProgressToCloud(progressRef.current).finally(() => {
+          setIsSyncingCloud(false);
+        });
+      }, 450);
+    };
+
+    window.addEventListener('online', handleOnlineReconnect);
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      window.removeEventListener('online', handleOnlineReconnect);
+    };
+  }, []);
 
   // Sync tickets to localStorage
   useEffect(() => {
@@ -155,14 +219,16 @@ function AppContent() {
 
   const getTabTitle = (tab: string) => {
     switch (tab) {
-      case 'dashboard': return 'مسیر یادگیری (سرفصل‌ها)';
+      case 'dashboard': return 'خانه (میز کار مطالعه)';
+      case 'learning': return 'بخش یادگیری و سرفصل‌ها';
       case 'book': return 'کتابچه و درس‌های روان‌شناسی';
-      case 'quiz': return 'تمرین و آزمون‌های مفهومی';
+      case 'quiz': return 'مرکز آزمون و تمرین مفهومی';
+      case 'profile': return 'پنل کاربری و پایش عملکرد';
       case 'analytics': return 'لیگ و کارنامه تحصیلی';
       case 'badges': return 'مدال‌ها و افتخارات';
-      case 'support': return 'سوپر دوئو (هوش مصنوعی)';
+      case 'support': return 'استاد راهنما (پشتیبانی علمی)';
       case 'notes': return 'دفترچه یادداشت و واژگان';
-      default: return 'روان‌لینگو';
+      default: return 'روان‌مستر';
     }
   };
 
@@ -202,12 +268,40 @@ function AppContent() {
 
   const handleSelectChapter = (chapter: Chapter) => {
     setCurrentChapter(chapter);
-    setActiveTab('book');
+    setLearningSubMode('book_reader');
+    setActiveTab('learning');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleOpenLearning = (mode: LearningSubMode = 'stages_100') => {
+    setLearningSubMode(mode);
+    setActiveTab('learning');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleOpenUserPanel = (subView: UserPanelSubView = 'overview') => {
+    setUserPanelSubView(subView);
+    setActiveTab('profile');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleStartQuiz = (chapter?: Chapter) => {
-    setQuizTargetChapter(chapter || currentChapter);
+    if (chapter) {
+      setQuizTargetChapter(chapter);
+      setQuizSubMode('conceptual_practice');
+    } else {
+      setQuizTargetChapter(null);
+      setQuizSubMode('entrance_exam');
+    }
+    setExamAttemptIdToReview(null);
+    setActiveTab('quiz');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleOpenExamSimulator = (attemptIdToReview?: string) => {
+    setQuizTargetChapter(null);
+    setQuizSubMode('entrance_exam');
+    setExamAttemptIdToReview(attemptIdToReview ?? null);
     setActiveTab('quiz');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -279,7 +373,6 @@ function AppContent() {
         difficulty,
       };
 
-      // Add to completed chapters if correct
       const updatedCompleted = isCorrect && !prev.completedChapters.includes(chapterId)
         ? [...prev.completedChapters, chapterId]
         : prev.completedChapters;
@@ -311,11 +404,21 @@ function AppContent() {
 
   const handleCompleteStage = (record: StageCompletionRecord) => {
     setProgress((prev) => {
-      const currentCompleted = prev.completedStages || {};
-      const updatedStages = {
-        ...currentCompleted,
-        [record.stageNumber]: record,
+      const normalizedRecord: StageCompletionRecord = {
+        ...record,
+        verified: Boolean(record.verified === true || record.source === 'online-verified'),
+        source:
+          record.verified === true || record.source === 'online-verified'
+            ? 'online-verified'
+            : 'offline-local',
       };
+      const updatedStages = mergeCompletedStages(prev.completedStages, {
+        [record.stageNumber]: normalizedRecord,
+      });
+
+      const alreadyRecordedInHistory = prev.quizHistory.some(
+        (h) => h.questionId === `stage-${record.stageNumber}` && Date.now() - h.timestamp < 15000
+      );
 
       const newHistoryItem = {
         chapterId: 'ch-1',
@@ -331,38 +434,26 @@ function AppContent() {
         ...prev,
         completedStages: updatedStages,
         unlockedStageNumber: Math.max(prev.unlockedStageNumber || 1, record.stageNumber + 1),
-        quizHistory: [newHistoryItem, ...prev.quizHistory],
-        totalStudyMinutes: prev.totalStudyMinutes + 3,
+        quizHistory: alreadyRecordedInHistory ? prev.quizHistory : [newHistoryItem, ...prev.quizHistory],
+        totalStudyMinutes: alreadyRecordedInHistory ? prev.totalStudyMinutes : prev.totalStudyMinutes + 3,
         streakDays: prev.streakDays < 1 ? 1 : prev.streakDays,
       };
 
       const updatedBadgeIds = checkBadgeUnlocks(updatedProg);
       return { ...updatedProg, unlockedBadgeIds: updatedBadgeIds };
     });
-
-    submitScoreToLeaderboard(
-      {
-        rewardType: 'stage_completion',
-        stageNumber: record.stageNumber,
-        stars: record.stars,
-        score: record.score,
-        totalQuestions: record.totalQuestions,
-        xpEarned: record.xpEarned,
-      },
-      progress.streakDays
-    );
   };
 
   const handleAddTicket = (newTicket: SupportTicket) => {
     setTickets((prev) => [newTicket, ...prev]);
   };
 
-  const handleAskMentorAboutChapter = (chapterTitle: string, sectionTitle: string) => {
+  const handleAskMentorAboutChapter = (_chapterTitle: string, _sectionTitle: string) => {
     setActiveTab('support');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleLogStudyTime = (chapterId: string, seconds: number, xpBonus: number) => {
+  const handleLogStudyTime = (chapterId: string, seconds: number, _xpBonus: number) => {
     setProgress((prev) => {
       const currentChapterSecs = prev.chapterStudyTime?.[chapterId] || 0;
       const updatedChapterStudyTime = {
@@ -388,19 +479,30 @@ function AppContent() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100/60 to-indigo-50/30 text-slate-900 font-sans flex flex-col selection:bg-indigo-100 selection:text-indigo-900">
+    <div className="min-h-screen bg-[#F7F5F0] text-[#24243B] font-sans flex flex-col selection:bg-[#EAE4FF] selection:text-[#24243B]">
       {/* Offline Status Notice Banner */}
       {isOffline && (
-        <div className="bg-amber-500 text-white text-xs font-black py-1.5 px-4 text-center flex items-center justify-center gap-2 shadow-xs">
-          <WifiOff className="w-3.5 h-3.5" />
-          <span>حالت آفلاین فعال است: تمامی سرفصل‌ها، متون کتابچه و مراحل کوئیز روان‌شناسی بدون نیاز به اینترنت در دسترس شما هستند.</span>
+        <div className="bg-[#FFF0C8] border-b border-[#E5A33D]/40 text-[#24243B] text-xs font-bold py-2 px-4 text-center flex items-center justify-center gap-2">
+          <WifiOff className="w-3.5 h-3.5 text-[#C98A27]" />
+          <span>حالت آفلاین فعال است: تمامی سرفصل‌ها، متون کتابچه و مراحل کوئیز بدون نیاز به اینترنت در دسترس هستند.</span>
         </div>
       )}
 
-      {/* Top Bar Contract Navigation */}
+      {/* 5-Destination Navigation Bar */}
       <Navbar
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={(tab) => {
+          if (tab === 'learning') {
+            setLearningSubMode('stages_100');
+          } else if (tab === 'profile') {
+            setUserPanelSubView('overview');
+          } else if (tab === 'quiz') {
+            setQuizTargetChapter(null);
+            setQuizSubMode('entrance_exam');
+            setExamAttemptIdToReview(null);
+          }
+          setActiveTab(tab);
+        }}
         onOpenSearch={() => setIsSearchOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenSourceCode={() => setIsSourceCodeOpen(true)}
@@ -409,102 +511,177 @@ function AppContent() {
         streakDays={progress.streakDays}
         unlockedBadgeCount={unlockedBadgeCount}
         onlineCount={onlineCount}
+        isOffline={isOffline}
+        isSyncingCloud={isSyncingCloud}
       />
 
       {/* Main Body View */}
-      <div className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-5 lg:px-8 pt-3 sm:pt-5 lg:pt-6 pb-24 lg:pb-10">
-        {activeTab === 'dashboard' && (
-          <StageExecutionProvider
-            progress={progress}
-            onCompleteStage={handleCompleteStage}
-          >
-            <DashboardView
+      <div className="flex-1 max-w-6xl w-full mx-auto px-3.5 sm:px-6 lg:px-8 pt-4 sm:pt-7 pb-24 lg:pb-12">
+        <OfflineSafeErrorBoundary>
+          {activeTab === 'dashboard' && (
+            <StageExecutionProvider
+              progress={progress}
+              onCompleteStage={handleCompleteStage}
+            >
+              <DashboardView
+                sections={psychologySections}
+                progress={progress}
+                currentChapter={currentChapter}
+                onSelectChapter={handleSelectChapter}
+                onStartQuiz={handleStartQuiz}
+                onOpenNotes={() => handleOpenUserPanel('notes')}
+                onOpenBadges={() => handleOpenUserPanel('badges')}
+                onOpenLearning={handleOpenLearning}
+                onOpenMentor={() => setActiveTab('support')}
+                onOpenUserPanel={() => handleOpenUserPanel('overview')}
+                onCompleteStage={handleCompleteStage}
+              />
+            </StageExecutionProvider>
+          )}
+
+          {activeTab === 'learning' && (
+            <StageExecutionProvider
+              progress={progress}
+              onCompleteStage={handleCompleteStage}
+            >
+              <LearningView
+                sections={psychologySections}
+                currentChapter={currentChapter}
+                progress={progress}
+                initialSubMode={learningSubMode}
+                onSubModeChange={setLearningSubMode}
+                onSelectChapter={(chap) => setCurrentChapter(chap)}
+                onStartQuiz={handleStartQuiz}
+                onToggleBookmark={handleToggleBookmark}
+                onTogglePin={handleTogglePin}
+                onSaveNote={handleSaveNote}
+                onMarkCompleted={handleMarkCompleted}
+                onAskMentorAboutChapter={handleAskMentorAboutChapter}
+                onOpenPomodoro={() => setIsPomodoroOpen(true)}
+                onUpdateSettings={(newSettings) =>
+                  setProgress((prev) => ({
+                    ...prev,
+                    customSettings: { ...prev.customSettings, ...newSettings },
+                  }))
+                }
+                onCompleteStage={handleCompleteStage}
+              />
+            </StageExecutionProvider>
+          )}
+
+          {activeTab === 'book' && (
+            <BookReaderView
+              sections={psychologySections}
+              currentChapter={currentChapter}
+              onSelectChapter={handleSelectChapter}
+              onStartQuiz={handleStartQuiz}
+              progress={progress}
+              onToggleBookmark={handleToggleBookmark}
+              onTogglePin={handleTogglePin}
+              onSaveNote={handleSaveNote}
+              onMarkCompleted={handleMarkCompleted}
+              onAskMentorAboutChapter={handleAskMentorAboutChapter}
+              onOpenPomodoro={() => setIsPomodoroOpen(true)}
+              onUpdateSettings={(newSettings) =>
+                setProgress((prev) => ({
+                  ...prev,
+                  customSettings: { ...prev.customSettings, ...newSettings },
+                }))
+              }
+            />
+          )}
+
+          {activeTab === 'quiz' && (
+            <QuizCenterView
+              sections={psychologySections}
+              selectedChapter={quizTargetChapter}
+              onClearSelectedChapter={() => {
+                setQuizTargetChapter(null);
+                setActiveTab('dashboard');
+              }}
+              onSelectChapter={handleSelectChapter}
+              progress={progress}
+              onRecordQuizResult={handleRecordQuizResult}
+              onOpenBadges={() => handleOpenUserPanel('badges')}
+              initialExamMode={quizSubMode}
+              initialAttemptIdToReview={examAttemptIdToReview}
+              onExamSubmitted={(_xpEarned, attempt) => {
+                setProgress((prev) => {
+                  const studyMins = Math.max(1, Math.round((attempt?.timeSpentSeconds || 60) / 60));
+                  const updatedProg: UserProgress = {
+                    ...prev,
+                    totalStudyMinutes: prev.totalStudyMinutes + studyMins,
+                    streakDays: prev.streakDays < 1 ? 1 : prev.streakDays,
+                  };
+                  const updatedBadgeIds = checkBadgeUnlocks(updatedProg);
+                  return { ...updatedProg, unlockedBadgeIds: updatedBadgeIds };
+                });
+              }}
+            />
+          )}
+
+          {activeTab === 'support' && (
+            <SupportSystemView
+              tickets={tickets}
+              onAddTicket={handleAddTicket}
+              selectedChapterTitle={currentChapter.title}
+              selectedSectionTitle={
+                psychologySections.find((s) => s.id === currentChapter.sectionId)?.title
+              }
+            />
+          )}
+
+          {activeTab === 'profile' && (
+            <UserPanelView
+              sections={psychologySections}
+              progress={progress}
+              initialSubView={userPanelSubView}
+              onSubViewChange={setUserPanelSubView}
+              onSelectChapter={handleSelectChapter}
+              onStartQuiz={handleStartQuiz}
+              onOpenExamSimulator={handleOpenExamSimulator}
+              onSaveNote={handleSaveNote}
+              onOpenSearch={() => setIsSearchOpen(true)}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+              onOpenPomodoro={() => setIsPomodoroOpen(true)}
+              onOpenReportModal={() => setIsReportModalOpen(true)}
+              onOpenTrafficAnalytics={() => setIsTrafficModalOpen(true)}
+              onOpenSourceCode={() => setIsSourceCodeOpen(true)}
+              onNavigateToLearning={() => handleOpenLearning('stages_100')}
+              onlineCount={onlineCount}
+              isOffline={isOffline}
+              isSyncingCloud={isSyncingCloud}
+            />
+          )}
+
+          {activeTab === 'badges' && (
+            <BadgesView
               sections={psychologySections}
               progress={progress}
               onSelectChapter={handleSelectChapter}
               onStartQuiz={handleStartQuiz}
-              onOpenNotes={() => setActiveTab('notes')}
-              onOpenBadges={() => setActiveTab('badges')}
-              onCompleteStage={handleCompleteStage}
             />
-          </StageExecutionProvider>
-        )}
+          )}
 
-        {activeTab === 'book' && (
-          <BookReaderView
-            sections={psychologySections}
-            currentChapter={currentChapter}
-            onSelectChapter={handleSelectChapter}
-            onStartQuiz={handleStartQuiz}
-            progress={progress}
-            onToggleBookmark={handleToggleBookmark}
-            onTogglePin={handleTogglePin}
-            onSaveNote={handleSaveNote}
-            onMarkCompleted={handleMarkCompleted}
-            onAskMentorAboutChapter={handleAskMentorAboutChapter}
-            onOpenPomodoro={() => setIsPomodoroOpen(true)}
-            onUpdateSettings={(newSettings) =>
-              setProgress((prev) => ({
-                ...prev,
-                customSettings: { ...prev.customSettings, ...newSettings },
-              }))
-            }
-          />
-        )}
+          {activeTab === 'analytics' && (
+            <AnalyticsView
+              sections={psychologySections}
+              progress={progress}
+              onSelectChapter={handleSelectChapter}
+              onOpenBadges={() => handleOpenUserPanel('badges')}
+              onOpenReportModal={() => setIsReportModalOpen(true)}
+            />
+          )}
 
-        {activeTab === 'quiz' && (
-          <QuizCenterView
-            sections={psychologySections}
-            selectedChapter={quizTargetChapter}
-            onClearSelectedChapter={() => {
-              setQuizTargetChapter(null);
-              setActiveTab('dashboard');
-            }}
-            onSelectChapter={handleSelectChapter}
-            progress={progress}
-            onRecordQuizResult={handleRecordQuizResult}
-            onOpenBadges={() => setActiveTab('badges')}
-          />
-        )}
-
-        {activeTab === 'badges' && (
-          <BadgesView
-            sections={psychologySections}
-            progress={progress}
-            onSelectChapter={handleSelectChapter}
-            onStartQuiz={handleStartQuiz}
-          />
-        )}
-
-        {activeTab === 'analytics' && (
-          <AnalyticsView
-            sections={psychologySections}
-            progress={progress}
-            onSelectChapter={handleSelectChapter}
-            onOpenBadges={() => setActiveTab('badges')}
-            onOpenReportModal={() => setIsReportModalOpen(true)}
-          />
-        )}
-
-        {activeTab === 'support' && (
-          <SupportSystemView
-            tickets={tickets}
-            onAddTicket={handleAddTicket}
-            selectedChapterTitle={currentChapter.title}
-            selectedSectionTitle={
-              psychologySections.find((s) => s.id === currentChapter.sectionId)?.title
-            }
-          />
-        )}
-
-        {activeTab === 'notes' && (
-          <NotebookView
-            sections={psychologySections}
-            progress={progress}
-            onSelectChapter={handleSelectChapter}
-            onSaveNote={handleSaveNote}
-          />
-        )}
+          {activeTab === 'notes' && (
+            <NotebookView
+              sections={psychologySections}
+              progress={progress}
+              onSelectChapter={handleSelectChapter}
+              onSaveNote={handleSaveNote}
+            />
+          )}
+        </OfflineSafeErrorBoundary>
       </div>
 
       {/* Badge Unlock Celebration Modal */}
@@ -513,7 +690,7 @@ function AppContent() {
         onClose={() => setNewlyUnlockedBadge(null)}
         onViewAllBadges={() => {
           setNewlyUnlockedBadge(null);
-          setActiveTab('badges');
+          handleOpenUserPanel('badges');
         }}
       />
 

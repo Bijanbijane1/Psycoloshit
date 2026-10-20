@@ -10,20 +10,19 @@ import {
   RotateCcw,
   ArrowRight,
   Stethoscope,
-  Puzzle,
-  FileText,
-  HelpCircle,
-  Volume2,
   CheckCircle2,
   XCircle,
   Award,
+  BookOpen,
 } from 'lucide-react';
-import { DuoMascot } from './DuoMascot';
 import { BadgeIcon } from './BadgeIcon';
-import { BADGE_DEFINITIONS, evaluateBadgeProgress } from '../data/badgeDefinitions';
+import { EntranceExamSimulator } from './EntranceExamSimulator';
 import { playDuoSound } from '../utils/duoAudio';
+import { toPersianDigits } from '../utils/persianDigits';
 import confetti from 'canvas-confetti';
 import { SECTION_1_STAGES } from '../data/section1Stages';
+
+export type QuizCenterSubMode = 'entrance_exam' | 'conceptual_practice';
 
 interface QuizCenterViewProps {
   sections: Section[];
@@ -40,6 +39,9 @@ interface QuizCenterViewProps {
     difficulty: DifficultyLevel
   ) => void;
   onOpenBadges?: () => void;
+  initialExamMode?: QuizCenterSubMode;
+  initialAttemptIdToReview?: string | null;
+  onExamSubmitted?: (xpEarned: number, attempt: any) => void;
 }
 
 type QuizFilterType =
@@ -59,7 +61,25 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
   progress,
   onRecordQuizResult,
   onOpenBadges,
+  initialExamMode,
+  initialAttemptIdToReview,
+  onExamSubmitted,
 }) => {
+  // Primary mode switcher: Entrance Exam Simulator (Phase 10B) vs Conceptual Practice
+  const [examMode, setExamMode] = useState<QuizCenterSubMode>(() => {
+    if (initialAttemptIdToReview) return 'entrance_exam';
+    if (initialExamMode) return initialExamMode;
+    return selectedChapter ? 'conceptual_practice' : 'entrance_exam';
+  });
+
+  useEffect(() => {
+    if (initialAttemptIdToReview) {
+      setExamMode('entrance_exam');
+    } else if (initialExamMode) {
+      setExamMode(initialExamMode);
+    }
+  }, [initialExamMode, initialAttemptIdToReview]);
+
   // Quiz filter
   const [filterType, setFilterType] = useState<QuizFilterType>('all');
 
@@ -115,7 +135,6 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
       }))
     );
 
-    // Merge and deduplicate by question id
     const seen = new Set<string>();
     const combined: (Question & { chapterId: string })[] = [];
     for (const q of [...chapterQuestions, ...stageQuestions]) {
@@ -143,7 +162,6 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
       if (filteredPool.length > 0) {
         pool = filteredPool;
       } else {
-        // Fallback: search across all chapters if current chapter has none for this specific type
         const globalFiltered = allQuestions.filter((q) => q.type === filterType);
         if (globalFiltered.length > 0) {
           pool = globalFiltered;
@@ -227,13 +245,11 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
 
   const checkPairMatch = (leftId: string, rightId: string) => {
     if (leftId === rightId) {
-      // Correct pair match!
       playDuoSound('pair_match');
       setMatchedPairIds((prev) => [...prev, leftId]);
       setSelectedPairLeft(null);
       setSelectedPairRight(null);
     } else {
-      // Mismatch
       playDuoSound('pair_error');
       setMismatchError(true);
       setTimeout(() => {
@@ -362,16 +378,17 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
       setIsQuizCompleted(true);
       playDuoSound('complete');
       confetti({
-        particleCount: 90,
-        spread: 85,
+        particleCount: 80,
+        spread: 80,
         origin: { y: 0.6 },
-        colors: ['#58CC02', '#FFC800', '#1CB0F6', '#FF4B4B', '#CE82FF'],
+        colors: ['#5B46E8', '#16A394', '#F59E0B', '#D9485F'],
       });
     }
   };
 
-  // Keyboard shortcut listener (1-4 for options, 1/2 for TF, Enter for next/submit)
+  // Keyboard shortcut listener (only active in conceptual_practice mode)
   useEffect(() => {
+    if (examMode !== 'conceptual_practice') return;
     const handleKey = (e: KeyboardEvent) => {
       if (!currentQuestion) return;
 
@@ -414,7 +431,7 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [isAnswerSubmitted, currentQuestion, selectedOptionIndex, caseSelectedOption, trueFalseAnswer, hasSelectedAnswer]);
+  }, [examMode, isAnswerSubmitted, currentQuestion, selectedOptionIndex, caseSelectedOption, trueFalseAnswer, hasSelectedAnswer]);
 
   // Fill in blank suggestions
   const fillBlankSuggestions = useMemo(() => {
@@ -435,77 +452,135 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
     return Array.from(new Set(pool)).slice(0, 4).sort(() => 0.5 - Math.random());
   }, [currentQuestion?.id, currentQuestion?.correctAnswer, currentQuestion?.options]);
 
+  const modeSwitcherBar = (
+    <div className="max-w-5xl mx-auto mb-5 bg-white border-2 border-[#24243B] rounded-2xl p-2 shadow-[0_4px_0_0_#24243B] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+      <div className="grid grid-cols-2 gap-2 flex-1">
+        <button
+          type="button"
+          onClick={() => {
+            playDuoSound('click');
+            setExamMode('entrance_exam');
+          }}
+          className={`min-h-[46px] px-3.5 py-2.5 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition cursor-pointer ${
+            examMode === 'entrance_exam'
+              ? 'bg-[#5842BC] text-white border-2 border-[#24243B] shadow-[0_3px_0_0_#24243B]'
+              : 'bg-[#F7F5F0] text-[#55556A] hover:bg-[#EAE4FF] border-2 border-transparent'
+          }`}
+        >
+          <Trophy className="w-4 h-4 shrink-0" />
+          <span>شبیه‌ساز آزمون و کنکور زمان‌دار</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            playDuoSound('click');
+            setExamMode('conceptual_practice');
+          }}
+          className={`min-h-[46px] px-3.5 py-2.5 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition cursor-pointer ${
+            examMode === 'conceptual_practice'
+              ? 'bg-[#279B7A] text-white border-2 border-[#24243B] shadow-[0_3px_0_0_#24243B]'
+              : 'bg-[#F7F5F0] text-[#55556A] hover:bg-[#D8F3EC] border-2 border-transparent'
+          }`}
+        >
+          <Zap className="w-4 h-4 shrink-0" />
+          <span>تمرین مفهومی و کوئیز تعاملی</span>
+        </button>
+      </div>
+    </div>
+  );
+
   // ==========================================================
-  // 1. LESSON COMPLETE SCREEN
+  // 0. PHASE 10B: ENTRANCE EXAM SIMULATOR MODE
+  // ==========================================================
+  if (examMode === 'entrance_exam') {
+    return (
+      <div className="max-w-5xl mx-auto">
+        {modeSwitcherBar}
+        <EntranceExamSimulator
+          sections={sections}
+          onSelectChapter={onSelectChapter}
+          onExamSubmitted={onExamSubmitted}
+          initialAttemptIdToReview={initialAttemptIdToReview}
+        />
+      </div>
+    );
+  }
+
+  // ==========================================================
+  // 1. QUIZ COMPLETION SUMMARY
   // ==========================================================
   if (isQuizCompleted) {
     const accuracy = Math.round((quizScore.correct / (questionsDeck.length || 1)) * 100);
     return (
       <div className="max-w-xl mx-auto py-8 px-4 flex flex-col items-center text-center select-none animate-fadeIn">
-        <DuoMascot mood="excited" size={130} />
+        {modeSwitcherBar}
+        <div className="w-16 h-16 rounded-2xl bg-[#EAE4FF] border border-[#5B46E8]/30 flex items-center justify-center text-[#5B46E8]">
+          <Trophy className="w-8 h-8" />
+        </div>
 
-        <h2 className="text-2xl sm:text-3xl font-black text-[#58CC02] mt-4">
-          درس کوئیز به پایان رسید! 🎉
+        <h2 className="text-2xl sm:text-3xl font-black text-[#24243B] mt-4">
+          آزمون تمرینی به پایان رسید
         </h2>
-        <p className="text-xs sm:text-sm font-bold text-slate-500 mt-1">
-          تسلط شما بر مفاهیم و سرفصل‌ها با موفقیت ثبت شد!
+        <p className="text-xs sm:text-sm font-medium text-[#69697E] mt-1">
+          نتایج عملکرد شما در این جلسه تمرینی ثبت شد.
         </p>
 
         {/* Recap Cards */}
         <div className="grid grid-cols-3 gap-3 w-full my-6">
-          <div className="bg-white border-2 border-b-4 border-[#FFC800] rounded-2xl p-4 flex flex-col items-center shadow-xs">
-            <span className="text-[11px] font-black text-amber-900">مجموع پاداش</span>
-            <div className="flex items-center gap-1 my-1">
-              <Zap className="w-5 h-5 text-[#FFC800] fill-[#FFC800]" />
-              <span className="text-xl font-black text-amber-950">
-                +{quizScore.points || 50}
+          <div className="bg-white border border-[#E5E1EB] rounded-2xl p-4 flex flex-col items-center">
+            <span className="text-[11px] font-bold text-[#69697E]">پاداش تمرین</span>
+            <div className="flex items-center gap-1 my-1.5">
+              <Zap className="w-4 h-4 text-[#D97706] fill-[#F59E0B]" />
+              <span className="text-xl font-black text-[#24243B]">
+                +{toPersianDigits(quizScore.points || 50)}
               </span>
             </div>
-            <span className="text-[10px] font-black text-slate-400">امتیاز XP</span>
+            <span className="text-[10px] font-bold text-[#69697E]">امتیاز XP</span>
           </div>
 
-          <div className="bg-white border-2 border-b-4 border-[#58CC02] rounded-2xl p-4 flex flex-col items-center shadow-xs">
-            <span className="text-[11px] font-black text-emerald-800">دقت پاسخ‌ها</span>
-            <span className="text-xl font-black text-[#58CC02] my-1">{accuracy}٪</span>
-            <span className="text-[10px] font-black text-slate-400">
-              {quizScore.correct} از {questionsDeck.length} درست
+          <div className="bg-white border border-[#E5E1EB] rounded-2xl p-4 flex flex-col items-center">
+            <span className="text-[11px] font-bold text-[#69697E]">دقت پاسخ‌ها</span>
+            <span className="text-xl font-black text-[#169E6C] my-1.5">{toPersianDigits(accuracy)}٪</span>
+            <span className="text-[10px] font-bold text-[#69697E]">
+              {toPersianDigits(quizScore.correct)} از {toPersianDigits(questionsDeck.length)} صحیح
             </span>
           </div>
 
-          <div className="bg-white border-2 border-b-4 border-[#FF9600] rounded-2xl p-4 flex flex-col items-center shadow-xs">
-            <span className="text-[11px] font-black text-orange-900">زنجیره مطالعه</span>
-            <div className="flex items-center gap-1 my-1">
-              <Sparkles className="w-5 h-5 text-[#FF9600] fill-[#FF9600]" />
-              <span className="text-xl font-black text-orange-950">
-                {progress.streakDays}
+          <div className="bg-white border border-[#E5E1EB] rounded-2xl p-4 flex flex-col items-center">
+            <span className="text-[11px] font-bold text-[#69697E]">پیوستگی</span>
+            <div className="flex items-center gap-1 my-1.5">
+              <Sparkles className="w-4 h-4 text-[#D9485F]" />
+              <span className="text-xl font-black text-[#24243B]">
+                {toPersianDigits(progress.streakDays)}
               </span>
             </div>
-            <span className="text-[10px] font-black text-slate-400">روز پیوسته 🔥</span>
+            <span className="text-[10px] font-bold text-[#69697E]">روز متوالی</span>
           </div>
         </div>
 
         {/* Quiz Milestone Badges Showcase */}
-        <div className="w-full bg-[#FFFBEB] border-2 border-[#FFC800] rounded-2xl p-4 mb-6 text-right flex items-center justify-between gap-4 shadow-2xs">
+        <div className="w-full bg-[#FFF0C8]/55 border border-[#F59E0B]/35 rounded-2xl p-4 mb-6 text-right flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="shrink-0">
               <BadgeIcon
                 type={accuracy >= 80 ? 'sharpshooter' : 'first_quiz'}
                 isUnlocked={quizScore.correct > 0}
-                size={54}
+                size={50}
                 showStars={false}
               />
             </div>
             <div>
-              <span className="text-[10px] font-black uppercase text-[#B45309] bg-amber-100 px-2 py-0.5 rounded-full inline-block">
-                دستاوردهای تستی دوئولینگو
+              <span className="text-[10px] font-extrabold text-[#92400E] bg-[#FFF0C8] px-2.5 py-0.5 rounded-md border border-[#F59E0B]/30 inline-block">
+                نشان‌های پیشرفت علمی
               </span>
-              <h4 className="text-sm font-black text-slate-800 mt-0.5">
+              <h4 className="text-sm font-black text-[#24243B] mt-1">
                 {accuracy >= 80
-                  ? 'آفرین! به مدال تیرانداز دقیق (Sharpshooter) نزدیک شدید!'
-                  : 'عالی بود! با تمرین بیشتر مدال‌های تستی جدیدی باز می‌شوند!'}
+                  ? 'عملکرد دقیق شما در مسیر نشان دقت بالا ثبت شد'
+                  : 'با ادامه تمرین‌های هدفمند، نشان‌های تخصصی بعدی فعال می‌شوند'}
               </h4>
-              <p className="text-[11px] font-bold text-slate-500">
-                با هر تست موفق، امتیاز XP و ستاره‌های تالار افتخارات ارتقا می‌یابد.
+              <p className="text-[11px] font-medium text-[#69697E] mt-0.5">
+                تمامی پاسخ‌های شما در تحلیل نقاط قوت و نیاز به مرور ذخیره شد.
               </p>
             </div>
           </div>
@@ -513,10 +588,10 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
           {onOpenBadges && (
             <button
               onClick={onOpenBadges}
-              className="duo-btn-orange px-3.5 py-2.5 rounded-xl text-xs font-black text-white shrink-0 cursor-pointer flex items-center gap-1.5"
+              className="px-3.5 py-2.5 rounded-xl bg-white hover:bg-[#F7F5F0] border border-[#E5E1EB] text-xs font-extrabold text-[#24243B] shrink-0 cursor-pointer flex items-center gap-1.5 transition-colors min-h-[44px]"
             >
-              <Award className="w-4 h-4" />
-              <span>مشاهده مدال‌ها</span>
+              <Award className="w-4 h-4 text-[#D97706]" />
+              <span>مشاهده نشان‌ها</span>
             </button>
           )}
         </div>
@@ -531,10 +606,10 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
               resetAllInputStates();
               setQuestionsDeck((prev) => [...prev].sort(() => 0.5 - Math.random()));
             }}
-            className="duo-btn-white flex-1 py-3.5 rounded-2xl text-xs font-black flex items-center justify-center gap-2 cursor-pointer"
+            className="flex-1 py-3.5 rounded-xl bg-white hover:bg-[#F7F5F0] border border-[#E5E1EB] text-[#24243B] text-xs font-extrabold flex items-center justify-center gap-2 cursor-pointer transition-colors min-h-[48px]"
           >
-            <RotateCcw className="w-4 h-4" />
-            <span>تمرین دوباره این دسته</span>
+            <RotateCcw className="w-4 h-4 text-[#69697E]" />
+            <span>تمرین مجدد این مجموعه</span>
           </button>
 
           <button
@@ -543,10 +618,10 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
               if (selectedChapter) onSelectChapter(selectedChapter);
               else onClearSelectedChapter();
             }}
-            className="duo-btn-green flex-1 py-3.5 rounded-2xl text-xs font-black flex items-center justify-center gap-2 cursor-pointer"
+            className="flex-1 py-3.5 rounded-xl bg-[#5B46E8] hover:bg-[#4935D4] text-white text-xs font-extrabold flex items-center justify-center gap-2 cursor-pointer transition-colors min-h-[48px]"
           >
             <ArrowRight className="w-4 h-4" />
-            <span>ادامه مسیر یادگیری</span>
+            <span>بازگشت به برنامه درسی</span>
           </button>
         </div>
       </div>
@@ -555,9 +630,8 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
 
   if (!currentQuestion) {
     return (
-      <div className="p-12 text-center bg-white rounded-3xl border-2 border-slate-200">
-        <DuoMascot mood="thinking" size={64} />
-        <p className="text-slate-600 text-sm font-bold mt-3">در حال بارگذاری کوئیز هوشمند...</p>
+      <div className="p-12 text-center bg-white rounded-2xl border border-[#E5E1EB]">
+        <p className="text-[#69697E] text-sm font-bold">در حال آماده‌سازی سوالات آزمون...</p>
       </div>
     );
   }
@@ -571,55 +645,85 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
   const isCorrect = isAnswerSubmitted ? checkIsCorrect() : false;
 
   return (
-    <div className="max-w-2xl mx-auto flex flex-col min-h-[82vh] justify-between pb-32 select-none">
-      {/* -------------------------------------------------------- */}
-      {/* Top Duolingo Bar: Exit X, Chunky Green Capsule, Hearts    */}
-      {/* -------------------------------------------------------- */}
+    <div className="max-w-2xl mx-auto flex flex-col min-h-[82vh] justify-between pb-40 md:pb-32 select-none">
       <div>
-        <div className="flex items-center gap-2 sm:gap-4 py-3">
+        {modeSwitcherBar}
+        {/* Top Quiz Header Bar */}
+        <div className="bg-white border border-[#E5E1EB] rounded-2xl px-3.5 sm:px-5 py-3 flex items-center gap-3">
           <button
             onClick={() => {
               playDuoSound('click');
               onClearSelectedChapter();
             }}
-            className="p-2 sm:px-3 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl cursor-pointer transition-colors flex items-center gap-1 min-h-[44px]"
+            className="p-2 text-[#69697E] hover:text-[#24243B] hover:bg-[#F7F5F0] rounded-xl cursor-pointer transition-colors flex items-center justify-center gap-1 min-w-[44px] min-h-[44px]"
             title="خروج از آزمون و بازگشت به داشبورد"
+            aria-label="خروج از آزمون"
           >
-            <X className="w-5 h-5 sm:w-6 sm:h-6 stroke-[3]" />
-            <span className="text-xs font-black text-slate-500 sm:hidden">خروج</span>
+            <X className="w-5 h-5" />
+            <span className="text-xs font-extrabold text-[#69697E] sm:hidden">خروج</span>
           </button>
 
-          {/* Academic Progress Capsule */}
-          <div className="flex-1 h-3.5 bg-slate-200/80 rounded-full overflow-hidden p-0.5 border border-slate-300/80">
-            <div
-              className="h-full bg-gradient-to-r from-indigo-600 via-indigo-500 to-blue-600 rounded-full transition-all duration-300 relative shadow-2xs"
-              style={{ width: `${Math.max(6, progressPercent)}%` }}
-            >
-              <div className="absolute top-0.5 right-1 left-1 h-0.5 bg-white/40 rounded-full" />
+          {/* Question Counter & Progress Bar */}
+          <div className="flex-1 flex flex-col gap-1 min-w-0">
+            <div className="flex items-center justify-between text-[11px] font-extrabold text-[#69697E] gap-2">
+              <span className="text-[#5B46E8] truncate">
+                {selectedChapter ? selectedChapter.title : 'بانک جامع سوالات روان‌شناسی'}
+              </span>
+              <span className="text-[#24243B] shrink-0">
+                سوال {toPersianDigits(currentQuestionIndex + 1)} از {toPersianDigits(questionsDeck.length)}
+              </span>
+            </div>
+            <div className="w-full h-2 bg-[#E5E1EB] rounded-full overflow-hidden">
+              <div
+                className="h-full bg-[#5B46E8] rounded-full transition-all duration-300"
+                style={{ width: `${Math.max(8, progressPercent)}%` }}
+              />
             </div>
           </div>
 
           {/* Hearts counter */}
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200/90 bg-white/90 shadow-2xs">
-            <Heart
-              className={`w-5 h-5 text-rose-500 fill-rose-500 ${
-                heartsCount <= 1 ? 'animate-bounce' : ''
-              }`}
-            />
-            <span className="text-sm font-black text-rose-600">{heartsCount}</span>
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#D9485F]/25 bg-[#FFE4E8]/65 min-h-[40px] shrink-0">
+            <Heart className="w-4 h-4 text-[#D9485F] fill-[#D9485F]" />
+            <span className="text-xs font-extrabold text-[#9F1239]">
+              {toPersianDigits(heartsCount)}
+            </span>
           </div>
         </div>
 
-        {/* Distinct Question Formats Filter Switcher */}
-        <div className="flex items-center gap-1.5 overflow-x-auto py-2 px-1 scrollbar-none">
+        {/* Direct Switch Banner to Entrance Exam Simulator */}
+        <div className="mt-3 p-3.5 rounded-2xl bg-[#EAE4FF]/70 border border-[#5842BC]/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-right">
+          <div className="flex items-start sm:items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-[#5842BC] text-white flex items-center justify-center shrink-0">
+              <Trophy className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="text-xs font-extrabold text-[#24243B] block">
+                بخش فعال: تمرین مفهومی و فلش‌کوئیز ۶گانه
+              </span>
+              <p className="text-[11px] font-medium text-[#55556A] mt-0.5">
+                برای شرکت در آزمون جامع زمان‌دار با نمره منفی و کارنامه کنکور، وارد شبیه‌ساز آزمون شوید.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setExamMode('entrance_exam')}
+            className="min-h-[40px] px-3 py-1.5 rounded-xl bg-[#5842BC] text-white text-xs font-black shrink-0 cursor-pointer"
+          >
+            ورود به شبیه‌ساز کنکور
+          </button>
+        </div>
+
+        {/* Question Format Filter Strip */}
+        <div className="flex items-center gap-1.5 overflow-x-auto py-3 px-0.5 no-scrollbar">
           {[
-            { id: 'all' as const, label: 'همه قالب‌ها 🎯' },
-            { id: 'match_pairs' as const, label: 'تطبیق جفت‌ها 🧩' },
-            { id: 'sentence_order' as const, label: 'مرتب‌سازی جمله 📝' },
-            { id: 'true_false' as const, label: 'درست / غلط ⚡' },
-            { id: 'multiple_choice' as const, label: 'چهارگزینه‌ای ❓' },
-            { id: 'case_study' as const, label: 'کیس بالینی 🩺' },
-            { id: 'fill_blank' as const, label: 'جای خالی ✍️' },
+            { id: 'all' as const, label: 'همه قالب‌ها' },
+            { id: 'multiple_choice' as const, label: 'چهارگزینه‌ای' },
+            { id: 'case_study' as const, label: 'سناریوی بالینی' },
+            { id: 'true_false' as const, label: 'درست / نادرست' },
+            { id: 'match_pairs' as const, label: 'تطبیق مفاهیم' },
+            { id: 'sentence_order' as const, label: 'چیدمان عبارت' },
+            { id: 'fill_blank' as const, label: 'تکمیل عبارت' },
           ].map((mode) => (
             <button
               key={mode.id}
@@ -627,10 +731,10 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
                 playDuoSound('click');
                 setFilterType(mode.id);
               }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-black whitespace-nowrap transition-all cursor-pointer ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-extrabold whitespace-nowrap transition-colors cursor-pointer border min-h-[44px] ${
                 filterType === mode.id
-                  ? 'bg-indigo-50 text-indigo-700 border-2 border-indigo-600 border-b-4'
-                  : 'text-slate-600 hover:bg-white/80 border-2 border-transparent'
+                  ? 'bg-[#EAE4FF] text-[#5B46E8] border-[#5B46E8]/40'
+                  : 'bg-white text-[#69697E] border-[#E5E1EB] hover:text-[#24243B]'
               }`}
             >
               {mode.label}
@@ -638,55 +742,43 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
           ))}
         </div>
 
-        {/* -------------------------------------------------------- */}
-        {/* Main Question Area with Mascot Speech Bubble             */}
-        {/* -------------------------------------------------------- */}
-        <div className="mt-5 flex flex-col gap-5">
-          {/* Duo Speech Bubble Header */}
-          <div className="flex items-start gap-3 sm:gap-4">
-            <DuoMascot
-              mood={
-                isAnswerSubmitted
-                  ? isCorrect
-                    ? 'excited'
-                    : 'sad'
-                  : currentQuestion.type === 'match_pairs'
-                  ? 'happy'
-                  : currentQuestion.type === 'case_study'
-                  ? 'tutor'
-                  : 'happy'
-              }
-              size={72}
-            />
-
-            <div className="flex-1 bg-white border-2 border-b-4 border-slate-200 rounded-3xl p-4 sm:p-5 relative shadow-xs duo-bubble-caret">
-              <span className="text-[11px] font-black uppercase text-[#1CB0F6] block mb-1">
+        {/* Main Question Card */}
+        <div className="mt-2 flex flex-col gap-4">
+          <div className="bg-white border border-[#E5E1EB] rounded-2xl p-5 sm:p-6">
+            <div className="flex items-center justify-between gap-2 mb-2.5">
+              <span className="text-[11px] font-extrabold text-[#0F766E] bg-[#DDF7F2] px-2.5 py-0.5 rounded-md">
                 {currentQuestion.type === 'match_pairs'
-                  ? 'جفت‌های مرتبط را یکی‌یکی وصل کن'
+                  ? 'تطبیق مفاهیم مرتبط'
                   : currentQuestion.type === 'sentence_order'
-                  ? 'کلمات را به ترتیب لمس کن تا جمله ساخته شود'
+                  ? 'چیدمان عبارت علمی'
                   : currentQuestion.type === 'true_false'
-                  ? 'درست یا غلط بودن این گزاره را مشخص کن'
+                  ? 'بررسی درستی گزاره'
                   : currentQuestion.type === 'multiple_choice'
-                  ? 'گزینه صحیح را انتخاب کن'
+                  ? 'سوال چهارگزینه‌ای'
                   : currentQuestion.type === 'fill_blank'
-                  ? 'جای خالی را با واژه صحیح پر کن'
-                  : 'تحلیل کیس بالینی و تشخیص'}
+                  ? 'تکمیل جای خالی'
+                  : 'تحلیل سناریوی بالینی'}
               </span>
-              <h3 className="text-sm sm:text-base font-black text-slate-800 leading-snug">
-                {currentQuestion.text}
-              </h3>
+              {currentChapter && (
+                <span className="text-[11px] font-medium text-[#69697E] truncate flex items-center gap-1">
+                  <BookOpen className="w-3.5 h-3.5 text-[#5B46E8]" />
+                  {currentChapter.title}
+                </span>
+              )}
             </div>
+            <h3 className="text-base sm:text-lg font-black text-[#24243B] leading-relaxed">
+              {currentQuestion.text}
+            </h3>
           </div>
 
           {/* ====================================================== */}
-          {/* FORMAT 1: MATCH PAIRS (تطبیق جفت‌ها)                  */}
+          {/* FORMAT 1: MATCH PAIRS                                  */}
           {/* ====================================================== */}
           {currentQuestion.type === 'match_pairs' && currentQuestion.matchPairs && (
-            <div className="grid grid-cols-2 gap-3 mt-2">
+            <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
               {/* Left Column Items */}
               <div className="flex flex-col gap-2.5">
-                <span className="text-[10px] font-black text-slate-400 px-1">دانشمندان و مفاهیم:</span>
+                <span className="text-[11px] font-bold text-[#69697E] px-1">دانشمندان و مفاهیم:</span>
                 {shuffledPairs.leftItems.map((item) => {
                   const isMatched = matchedPairIds.includes(item.id);
                   const isSelected = selectedPairLeft === item.id;
@@ -696,19 +788,19 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
                       key={item.id}
                       disabled={isMatched || isAnswerSubmitted}
                       onClick={() => handleTapPairLeft(item.id)}
-                      className={`p-3.5 rounded-2xl border-2 font-black text-xs text-right transition-all cursor-pointer select-none ${
+                      className={`p-3.5 rounded-xl border font-bold text-xs text-right transition-all cursor-pointer select-none min-h-[48px] break-words ${
                         isMatched
-                          ? 'bg-[#EAFBE7] border-2 border-[#58CC02] text-[#2E7500] opacity-60 cursor-default'
+                          ? 'bg-[#DDF7F2]/65 border-[#169E6C]/40 text-[#064E3B] opacity-60 cursor-default'
                           : isSelected
                           ? mismatchError
-                            ? 'bg-[#FFDFE0] border-[#FF4B4B] text-[#EA2B2B] animate-shake'
-                            : 'bg-[#DDF4FF] border-[#1CB0F6] border-b-4 text-[#1899D6] translate-y-[-2px]'
-                          : 'bg-white border-slate-200 border-b-4 hover:bg-slate-50 text-slate-700'
+                            ? 'bg-[#FFE4E8] border-2 border-[#E5484D] text-[#881337] animate-shake'
+                            : 'bg-[#EAE4FF] border-2 border-[#5B46E8] text-[#24243B]'
+                          : 'bg-white border-[#E5E1EB] hover:border-[#5B46E8]/40 text-[#24243B]'
                       }`}
                     >
-                      <div className="flex items-center justify-between">
-                        <span>{item.text}</span>
-                        {isMatched && <Check className="w-4 h-4 text-[#58CC02] stroke-[3]" />}
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className="flex-1">{item.text}</span>
+                        {isMatched && <Check className="w-4 h-4 text-[#169E6C] stroke-[2.75] shrink-0" />}
                       </div>
                     </button>
                   );
@@ -717,7 +809,7 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
 
               {/* Right Column Items */}
               <div className="flex flex-col gap-2.5">
-                <span className="text-[10px] font-black text-slate-400 px-1">مکاتب و دستاوردها:</span>
+                <span className="text-[11px] font-bold text-[#69697E] px-1">مکاتب و دستاوردها:</span>
                 {shuffledPairs.rightItems.map((item) => {
                   const isMatched = matchedPairIds.includes(item.id);
                   const isSelected = selectedPairRight === item.id;
@@ -727,19 +819,19 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
                       key={item.id}
                       disabled={isMatched || isAnswerSubmitted}
                       onClick={() => handleTapPairRight(item.id)}
-                      className={`p-3.5 rounded-2xl border-2 font-black text-xs text-right transition-all cursor-pointer select-none ${
+                      className={`p-3.5 rounded-xl border font-bold text-xs text-right transition-all cursor-pointer select-none min-h-[48px] break-words ${
                         isMatched
-                          ? 'bg-[#EAFBE7] border-2 border-[#58CC02] text-[#2E7500] opacity-60 cursor-default'
+                          ? 'bg-[#DDF7F2]/65 border-[#169E6C]/40 text-[#064E3B] opacity-60 cursor-default'
                           : isSelected
                           ? mismatchError
-                            ? 'bg-[#FFDFE0] border-[#FF4B4B] text-[#EA2B2B] animate-shake'
-                            : 'bg-[#DDF4FF] border-[#1CB0F6] border-b-4 text-[#1899D6] translate-y-[-2px]'
-                          : 'bg-white border-slate-200 border-b-4 hover:bg-slate-50 text-slate-700'
+                            ? 'bg-[#FFE4E8] border-2 border-[#E5484D] text-[#881337] animate-shake'
+                            : 'bg-[#EAE4FF] border-2 border-[#5B46E8] text-[#24243B]'
+                          : 'bg-white border-[#E5E1EB] hover:border-[#5B46E8]/40 text-[#24243B]'
                       }`}
                     >
-                      <div className="flex items-center justify-between">
-                        <span>{item.text}</span>
-                        {isMatched && <Check className="w-4 h-4 text-[#58CC02] stroke-[3]" />}
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className="flex-1">{item.text}</span>
+                        {isMatched && <Check className="w-4 h-4 text-[#169E6C] stroke-[2.75] shrink-0" />}
                       </div>
                     </button>
                   );
@@ -749,15 +841,14 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
           )}
 
           {/* ====================================================== */}
-          {/* FORMAT 2: SENTENCE ORDER (مرتب‌سازی جمله)              */}
+          {/* FORMAT 2: SENTENCE ORDER                               */}
           {/* ====================================================== */}
           {currentQuestion.type === 'sentence_order' && currentQuestion.sentenceTokens && (
-            <div className="flex flex-col gap-4 mt-2">
-              {/* Assembled Sentence Drop Area */}
-              <div className="min-h-[72px] bg-slate-50 border-2 border-dashed border-slate-300 rounded-2xl p-3 flex flex-wrap items-center gap-2">
+            <div className="flex flex-col gap-4">
+              <div className="min-h-[76px] bg-white border border-dashed border-[#CFC9DA] rounded-2xl p-4 flex flex-wrap items-center gap-2">
                 {selectedTokens.length === 0 ? (
-                  <span className="text-xs font-bold text-slate-400 mr-2">
-                    برای مرتب‌سازی جمله، روی کلمات پایین کلیک کن...
+                  <span className="text-xs font-medium text-[#69697E] mr-1">
+                    برای مرتب‌سازی عبارت علمی، روی کلمات پایین کلیک کنید...
                   </span>
                 ) : (
                   selectedTokens.map((token, idx) => (
@@ -768,8 +859,8 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
                         playDuoSound('pop');
                         setSelectedTokens((prev) => prev.filter((_, i) => i !== idx));
                       }}
-                      className="duo-btn-blue px-3.5 py-1.5 rounded-xl text-xs font-black cursor-pointer shadow-xs animate-scaleUp"
-                      title="لمس برای بازگرداندن کلمه"
+                      className="px-3.5 py-2 rounded-xl bg-[#EAE4FF] border border-[#5B46E8]/35 text-[#24243B] text-xs font-extrabold cursor-pointer min-h-[44px]"
+                      title="حذف کلمه"
                     >
                       {token}
                     </button>
@@ -777,9 +868,8 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
                 )}
               </div>
 
-              {/* Pool of Available Tokens */}
               {!isAnswerSubmitted && (
-                <div className="flex flex-wrap items-center justify-center gap-2 pt-2 border-t border-slate-100">
+                <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
                   {currentQuestion.sentenceTokens.map((token, idx) => {
                     const isAlreadyPlaced = selectedTokens.includes(token);
                     return (
@@ -790,10 +880,10 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
                           playDuoSound('pop');
                           setSelectedTokens((prev) => [...prev, token]);
                         }}
-                        className={`px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                        className={`px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer border min-h-[44px] ${
                           isAlreadyPlaced
-                            ? 'bg-slate-200 border-2 border-slate-300 text-slate-400 opacity-40 cursor-default'
-                            : 'duo-btn-white'
+                            ? 'bg-[#F7F5F0] border-[#E5E1EB] text-[#69697E] opacity-40 cursor-default'
+                            : 'bg-white border-[#E5E1EB] hover:border-[#5B46E8] text-[#24243B]'
                         }`}
                       >
                         {token}
@@ -806,7 +896,7 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
           )}
 
           {/* ====================================================== */}
-          {/* FORMAT 3: TRUE / FALSE LIGHTNING (درست یا غلط)         */}
+          {/* FORMAT 3: TRUE / FALSE                                 */}
           {/* ====================================================== */}
           {currentQuestion.type === 'true_false' && (() => {
             const isExpectedTrue =
@@ -817,53 +907,51 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
                 : String(currentQuestion.correctAnswer).toLowerCase() === 'true';
 
             return (
-              <div className="grid grid-cols-2 gap-4 mt-4">
-                {/* True Button */}
+              <div className="grid grid-cols-2 gap-3.5">
                 <button
                   disabled={isAnswerSubmitted}
                   onClick={() => {
                     playDuoSound('click');
                     setTrueFalseAnswer(true);
                   }}
-                  className={`p-6 rounded-3xl border-2 font-black text-center flex flex-col items-center gap-2 transition-all cursor-pointer select-none ${
+                  className={`p-5 rounded-2xl border font-extrabold text-center flex flex-col items-center gap-2 transition-all cursor-pointer select-none ${
                     isAnswerSubmitted && isExpectedTrue === true
-                      ? 'bg-[#D7FFB8] border-b-4 border-[#58CC02] text-[#2E7500]'
+                      ? 'bg-[#DDF7F2] border-2 border-[#169E6C] text-[#064E3B]'
                       : isAnswerSubmitted && trueFalseAnswer === true && !isCorrect
-                      ? 'bg-[#FFDFE0] border-b-4 border-[#FF4B4B] text-[#EA2B2B]'
+                      ? 'bg-[#FFE4E8] border-2 border-[#E5484D] text-[#881337]'
                       : trueFalseAnswer === true
-                      ? 'bg-[#D7FFB8] border-b-4 border-[#58CC02] text-[#2E7500] scale-[1.02]'
-                      : 'bg-white border-slate-200 border-b-4 hover:bg-slate-50 text-slate-800'
+                      ? 'bg-[#EAE4FF] border-2 border-[#5B46E8] text-[#24243B]'
+                      : 'bg-white border-[#E5E1EB] hover:border-[#5B46E8]/40 text-[#24243B]'
                   }`}
                 >
-                  <div className="w-12 h-12 rounded-2xl bg-emerald-100 flex items-center justify-center text-[#58CC02]">
-                    <CheckCircle2 className="w-8 h-8" />
+                  <div className="w-11 h-11 rounded-xl bg-[#DDF7F2] flex items-center justify-center text-[#169E6C]">
+                    <CheckCircle2 className="w-6 h-6" />
                   </div>
-                  <span className="text-base font-black">صحیح (درست)</span>
-                  <span className="text-[10px] font-bold text-slate-400">کلید ۱</span>
+                  <span className="text-sm sm:text-base font-black">صحیح (درست)</span>
+                  <span className="text-[11px] font-bold text-[#69697E]">کلید ۱</span>
                 </button>
 
-                {/* False Button */}
                 <button
                   disabled={isAnswerSubmitted}
                   onClick={() => {
                     playDuoSound('click');
                     setTrueFalseAnswer(false);
                   }}
-                  className={`p-6 rounded-3xl border-2 font-black text-center flex flex-col items-center gap-2 transition-all cursor-pointer select-none ${
+                  className={`p-5 rounded-2xl border font-extrabold text-center flex flex-col items-center gap-2 transition-all cursor-pointer select-none ${
                     isAnswerSubmitted && isExpectedTrue === false
-                      ? 'bg-[#D7FFB8] border-b-4 border-[#58CC02] text-[#2E7500]'
+                      ? 'bg-[#DDF7F2] border-2 border-[#169E6C] text-[#064E3B]'
                       : isAnswerSubmitted && trueFalseAnswer === false && !isCorrect
-                      ? 'bg-[#FFDFE0] border-b-4 border-[#FF4B4B] text-[#EA2B2B]'
+                      ? 'bg-[#FFE4E8] border-2 border-[#E5484D] text-[#881337]'
                       : trueFalseAnswer === false
-                      ? 'bg-[#FFDFE0] border-b-4 border-[#FF4B4B] text-[#EA2B2B] scale-[1.02]'
-                      : 'bg-white border-slate-200 border-b-4 hover:bg-slate-50 text-slate-800'
+                      ? 'bg-[#EAE4FF] border-2 border-[#5B46E8] text-[#24243B]'
+                      : 'bg-white border-[#E5E1EB] hover:border-[#5B46E8]/40 text-[#24243B]'
                   }`}
                 >
-                  <div className="w-12 h-12 rounded-2xl bg-rose-100 flex items-center justify-center text-[#FF4B4B]">
-                    <XCircle className="w-8 h-8" />
+                  <div className="w-11 h-11 rounded-xl bg-[#FFE4E8] flex items-center justify-center text-[#E5484D]">
+                    <XCircle className="w-6 h-6" />
                   </div>
-                  <span className="text-base font-black">غلط (نادرست)</span>
-                  <span className="text-[10px] font-bold text-slate-400">کلید ۲</span>
+                  <span className="text-sm sm:text-base font-black">غلط (نادرست)</span>
+                  <span className="text-[11px] font-bold text-[#69697E]">کلید ۲</span>
                 </button>
               </div>
             );
@@ -873,7 +961,7 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
           {/* FORMAT 4: MULTIPLE CHOICE OPTIONS                      */}
           {/* ====================================================== */}
           {currentQuestion.type === 'multiple_choice' && currentQuestion.options && (
-            <div className="grid grid-cols-1 gap-3 mt-2">
+            <div className="grid grid-cols-1 gap-2.5">
               {currentQuestion.options.map((option, idx) => {
                 const isSelected = selectedOptionIndex === idx;
                 const isThisCorrect = isAnswerSubmitted && idx === currentQuestion.correctAnswer;
@@ -887,33 +975,33 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
                       playDuoSound('click');
                       setSelectedOptionIndex(idx);
                     }}
-                    className={`w-full p-4 rounded-2xl border-2 font-black text-right flex items-center justify-between transition-all cursor-pointer select-none ${
+                    className={`w-full p-4 rounded-xl border font-bold text-right flex items-center justify-between gap-3 transition-all cursor-pointer select-none ${
                       isThisCorrect
-                        ? 'bg-emerald-50 border-2 border-b-4 border-emerald-500 text-emerald-950 shadow-sm'
+                        ? 'bg-[#DDF7F2] border-2 border-[#169E6C] text-[#064E3B] font-extrabold'
                         : isThisWrong
-                        ? 'bg-rose-50 border-2 border-b-4 border-rose-500 text-rose-950'
+                        ? 'bg-[#FFE4E8] border-2 border-[#E5484D] text-[#881337]'
                         : isSelected
-                        ? 'bg-indigo-50 border-2 border-b-4 border-indigo-600 text-indigo-950 translate-y-[-2px] shadow-sm'
-                        : 'bg-white/90 backdrop-blur-md border-slate-200 border-b-4 hover:bg-white text-slate-800 hover:border-slate-300'
+                        ? 'bg-[#EAE4FF] border-2 border-[#5B46E8] text-[#24243B] font-extrabold'
+                        : 'bg-white border-[#E5E1EB] hover:border-[#5B46E8]/40 text-[#24243B]'
                     }`}
                   >
                     <div className="flex items-center gap-3">
                       <span
-                        className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-black border ${
+                        className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-extrabold border shrink-0 ${
                           isSelected
-                            ? 'bg-indigo-600 text-white border-indigo-700'
-                            : 'bg-slate-100 text-slate-600 border-slate-300'
+                            ? 'bg-[#5B46E8] text-white border-[#5B46E8]'
+                            : 'bg-[#F7F5F0] text-[#69697E] border-[#E5E1EB]'
                         }`}
                       >
-                        {idx + 1}
+                        {toPersianDigits(idx + 1)}
                       </span>
-                      <span className="text-sm font-black">{option}</span>
+                      <span className="text-sm leading-relaxed">{option}</span>
                     </div>
 
                     {isThisCorrect && (
-                      <Check className="w-5 h-5 text-emerald-600 stroke-[3]" />
+                      <Check className="w-5 h-5 text-[#169E6C] stroke-[2.75] shrink-0" />
                     )}
-                    {isThisWrong && <X className="w-5 h-5 text-rose-500 stroke-[3]" />}
+                    {isThisWrong && <X className="w-5 h-5 text-[#E5484D] stroke-[2.75] shrink-0" />}
                   </button>
                 );
               })}
@@ -924,17 +1012,17 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
           {/* FORMAT 5: FILL IN THE BLANK                            */}
           {/* ====================================================== */}
           {currentQuestion.type === 'fill_blank' && (
-            <div className="flex flex-col gap-4 mt-2">
-              <div className="bg-slate-50 border-2 border-dashed border-slate-300 rounded-2xl p-5 text-center text-base font-black text-slate-700 leading-relaxed flex items-center justify-center flex-wrap gap-2">
+            <div className="flex flex-col gap-4">
+              <div className="bg-white border border-[#E5E1EB] rounded-2xl p-5 text-center text-base font-bold text-[#24243B] leading-loose flex items-center justify-center flex-wrap gap-2">
                 <span>{currentQuestion.blankContext?.before}</span>
-                <span className="min-w-[120px] px-3 py-1.5 border-b-4 border-[#1CB0F6] bg-white text-[#1CB0F6] rounded-xl text-center shadow-xs">
-                  {fillBlankInput || '...'}
+                <span className="min-w-[110px] px-3.5 py-1 border border-dashed border-[#5B46E8] bg-[#EAE4FF]/50 text-[#5B46E8] font-extrabold rounded-xl text-center">
+                  {fillBlankInput || '......'}
                 </span>
                 <span>{currentQuestion.blankContext?.after}</span>
               </div>
 
               {!isAnswerSubmitted && (
-                <div className="flex flex-wrap items-center justify-center gap-2 mt-2">
+                <div className="flex flex-wrap items-center justify-center gap-2">
                   {fillBlankSuggestions.map((word, i) => (
                     <button
                       key={i}
@@ -942,10 +1030,10 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
                         playDuoSound('click');
                         setFillBlankInput(word);
                       }}
-                      className={`duo-btn-white px-4 py-2.5 rounded-xl text-xs font-black cursor-pointer transition-all ${
+                      className={`px-4 py-2.5 rounded-xl text-xs font-extrabold cursor-pointer transition-all border min-h-[44px] ${
                         fillBlankInput === word
-                          ? 'bg-[#DDF4FF] border-[#1CB0F6] text-[#1CB0F6]'
-                          : ''
+                          ? 'bg-[#EAE4FF] border-[#5B46E8] text-[#5B46E8]'
+                          : 'bg-white border-[#E5E1EB] hover:border-[#5B46E8]/40 text-[#24243B]'
                       }`}
                     >
                       {word}
@@ -960,11 +1048,11 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
           {/* FORMAT 6: CASE STUDY                                   */}
           {/* ====================================================== */}
           {currentQuestion.type === 'case_study' && (
-            <div className="flex flex-col gap-4 mt-2">
+            <div className="flex flex-col gap-4">
               {currentQuestion.caseScenario && (
-                <div className="bg-sky-50 border-2 border-sky-200 rounded-2xl p-4 text-xs font-bold text-sky-950">
-                  <div className="flex items-center gap-2 mb-2 font-black text-[#1CB0F6]">
-                    <Stethoscope className="w-4 h-4" />
+                <div className="bg-[#DDF7F2]/55 border border-[#16A394]/30 rounded-2xl p-4 text-xs font-medium text-[#24243B]">
+                  <div className="flex items-center gap-2 mb-2 font-extrabold text-[#0F766E]">
+                    <Stethoscope className="w-4 h-4 text-[#16A394]" />
                     <span>شرح حال و نشانه‌شناسی مراجع:</span>
                   </div>
                   <p className="leading-relaxed mb-2">
@@ -975,7 +1063,7 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
                       {currentQuestion.caseScenario.symptoms.map((sym, idx) => (
                         <span
                           key={idx}
-                          className="px-2 py-0.5 rounded-md bg-white border border-sky-200 text-sky-800 text-[10px]"
+                          className="px-2.5 py-0.5 rounded-md bg-white border border-[#16A394]/30 text-[#0F766E] text-[11px] font-bold"
                         >
                           • {sym}
                         </span>
@@ -999,24 +1087,24 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
                         playDuoSound('click');
                         setCaseSelectedOption(idx);
                       }}
-                      className={`w-full p-3.5 rounded-2xl border-2 font-black text-right flex items-center justify-between transition-all cursor-pointer ${
+                      className={`w-full p-3.5 rounded-xl border font-bold text-right flex items-center justify-between gap-3 transition-all cursor-pointer min-h-[54px] ${
                         isThisCorrect
-                          ? 'bg-[#D7FFB8] border-b-4 border-[#58CC02] text-[#2E7500]'
+                          ? 'bg-[#DDF7F2] border-2 border-[#169E6C] text-[#064E3B] font-extrabold'
                           : isThisWrong
-                          ? 'bg-[#FFDFE0] border-b-4 border-[#FF4B4B] text-[#EA2B2B]'
+                          ? 'bg-[#FFE4E8] border-2 border-[#E5484D] text-[#881337]'
                           : isSelected
-                          ? 'bg-[#DDF4FF] border-b-4 border-[#1CB0F6] text-[#1899D6]'
-                          : 'bg-white border-slate-200 border-b-4 hover:bg-slate-50 text-slate-700'
+                          ? 'bg-[#EAE4FF] border-2 border-[#5B46E8] text-[#24243B] font-extrabold'
+                          : 'bg-white border-[#E5E1EB] hover:border-[#5B46E8]/40 text-[#24243B]'
                       }`}
                     >
                       <div className="flex items-center gap-3">
-                        <span className="w-6 h-6 rounded-lg bg-slate-100 border border-slate-300 text-slate-600 flex items-center justify-center text-xs font-black">
-                          {idx + 1}
+                        <span className="w-6 h-6 rounded-lg bg-[#F7F5F0] border border-[#E5E1EB] text-[#69697E] flex items-center justify-center text-xs font-extrabold shrink-0">
+                          {toPersianDigits(idx + 1)}
                         </span>
-                        <span className="text-xs font-black">{opt}</span>
+                        <span className="text-xs sm:text-sm leading-relaxed">{opt}</span>
                       </div>
-                      {isThisCorrect && <Check className="w-4 h-4 text-[#58CC02] stroke-[3]" />}
-                      {isThisWrong && <X className="w-4 h-4 text-[#FF4B4B] stroke-[3]" />}
+                      {isThisCorrect && <Check className="w-4 h-4 text-[#169E6C] stroke-[2.75] shrink-0" />}
+                      {isThisWrong && <X className="w-4 h-4 text-[#E5484D] stroke-[2.75] shrink-0" />}
                     </button>
                   );
                 })}
@@ -1027,32 +1115,42 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
       </div>
 
       {/* ---------------------------------------------------------- */}
-      {/* SIGNATURE DUOLINGO BOTTOM ACTION DRAWER                     */}
+      {/* BOTTOM ACTION & FEEDBACK BAR (Flush to bottom-0)           */}
       {/* ---------------------------------------------------------- */}
       <div
-        className={`fixed bottom-0 right-0 left-0 z-50 p-3.5 sm:p-6 pb-safe transition-all duration-300 border-t-2 shadow-2xl ${
+        className={`fixed bottom-0 right-0 left-0 z-30 p-3.5 sm:p-5 pb-safe transition-all duration-200 border-t shadow-lg ${
           isAnswerSubmitted
             ? isCorrect
-              ? 'bg-[#D7FFB8] border-[#58CC02]'
-              : 'bg-[#FFDFE0] border-[#FF4B4B]'
-            : 'bg-white border-slate-200'
+              ? 'bg-[#DDF7F2] border-[#169E6C]/40'
+              : 'bg-[#FFE4E8] border-[#E5484D]/40'
+            : 'bg-white border-[#E5E1EB]'
         }`}
       >
         <div className="max-w-2xl mx-auto flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sm:gap-4">
           <div className="flex items-center gap-3">
             {isAnswerSubmitted && (
-              <div className="flex items-center gap-2.5 sm:gap-3">
-                <DuoMascot mood={isCorrect ? 'excited' : 'sad'} size={44} animate={false} />
+              <div className="flex items-start gap-2.5 sm:gap-3">
+                <div
+                  className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
+                    isCorrect ? 'bg-[#169E6C] text-white' : 'bg-[#E5484D] text-white'
+                  }`}
+                >
+                  {isCorrect ? (
+                    <Check className="w-4 h-4 stroke-[3]" />
+                  ) : (
+                    <X className="w-4 h-4 stroke-[3]" />
+                  )}
+                </div>
                 <div className="flex flex-col text-right">
                   <span
-                    className={`text-base sm:text-lg font-black ${
-                      isCorrect ? 'text-[#2E7500]' : 'text-[#EA2B2B]'
+                    className={`text-sm sm:text-base font-black ${
+                      isCorrect ? 'text-[#064E3B]' : 'text-[#881337]'
                     }`}
                   >
-                    {isCorrect ? 'فوق‌العاده بود! 🎉' : 'پاسخ صحیح:'}
+                    {isCorrect ? 'پاسخ صحیح است' : 'پاسخ صحیح:'}
                   </span>
                   {!isCorrect && (
-                    <span className="text-xs font-black text-[#EA2B2B]">
+                    <span className="text-xs font-extrabold text-[#881337]">
                       {currentQuestion.type === 'multiple_choice' && currentQuestion.options
                         ? currentQuestion.options[Number(currentQuestion.correctAnswer)]
                         : currentQuestion.type === 'true_false'
@@ -1061,11 +1159,11 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
                           : 'غلط (نادرست)'
                         : currentQuestion.type === 'sentence_order'
                         ? currentQuestion.correctSentence
-                          : String(currentQuestion.correctAnswer)}
+                        : String(currentQuestion.correctAnswer)}
                     </span>
                   )}
                   {currentQuestion.explanation && (
-                    <p className="text-[10px] sm:text-[11px] font-bold text-slate-600 max-w-sm mt-0.5 line-clamp-1">
+                    <p className="text-[11px] font-medium text-[#24243B]/80 max-w-md mt-0.5 leading-relaxed">
                       {currentQuestion.explanation}
                     </p>
                   )}
@@ -1073,8 +1171,8 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
               </div>
             )}
             {!isAnswerSubmitted && (
-              <span className="text-xs font-bold text-slate-400 hidden sm:inline">
-                پاسخ خود را مشخص کن و دکمه بررسی را بزن
+              <span className="text-xs font-medium text-[#69697E] hidden sm:inline">
+                پاسخ مورد نظر را انتخاب کنید و سپس دکمه بررسی پاسخ را بزنید
               </span>
             )}
           </div>
@@ -1083,10 +1181,10 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
             <button
               disabled={!hasSelectedAnswer()}
               onClick={handleSubmitAnswer}
-              className={`w-full sm:w-44 py-3.5 rounded-2xl text-sm font-black cursor-pointer uppercase tracking-wider transition-all min-h-[48px] flex items-center justify-center ${
+              className={`w-full sm:w-44 py-3 rounded-xl text-sm font-extrabold transition-colors min-h-[48px] flex items-center justify-center ${
                 hasSelectedAnswer()
-                  ? 'duo-btn-green'
-                  : 'bg-slate-200 border-b-4 border-slate-300 text-slate-400 cursor-not-allowed'
+                  ? 'bg-[#5B46E8] hover:bg-[#4935D4] text-white cursor-pointer'
+                  : 'bg-[#E5E1EB] text-[#69697E] cursor-not-allowed'
               }`}
             >
               بررسی پاسخ
@@ -1094,8 +1192,10 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
           ) : (
             <button
               onClick={handleNextQuestion}
-              className={`w-full sm:w-44 py-3.5 rounded-2xl text-sm font-black cursor-pointer uppercase tracking-wider transition-all min-h-[48px] flex items-center justify-center ${
-                isCorrect ? 'duo-btn-green' : 'duo-btn-red'
+              className={`w-full sm:w-44 py-3 rounded-xl text-sm font-extrabold text-white cursor-pointer transition-colors min-h-[48px] flex items-center justify-center ${
+                isCorrect
+                  ? 'bg-[#169E6C] hover:bg-[#128359]'
+                  : 'bg-[#E5484D] hover:bg-[#C93B40]'
               }`}
             >
               ادامه
@@ -1106,3 +1206,4 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
     </div>
   );
 };
+

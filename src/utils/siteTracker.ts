@@ -75,7 +75,7 @@ export function detectOS(): string {
   return 'Other';
 }
 
-// Send tracking event to backend
+// Send tracking event to backend (paused when offline)
 export async function trackSiteEvent(payload: {
   eventType: 'pageview' | 'quiz_start' | 'stage_pass' | 'badge_earned' | 'search' | 'note_saved';
   path: string;
@@ -83,6 +83,7 @@ export async function trackSiteEvent(payload: {
   metadata?: Record<string, any>;
 }): Promise<void> {
   if (typeof window === 'undefined') return;
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
   try {
     const visitorId = getOrCreateVisitorId();
     const sessionId = getOrCreateSessionId();
@@ -92,6 +93,7 @@ export async function trackSiteEvent(payload: {
 
     await fetch('/api/analytics/track', {
       method: 'POST',
+      credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         visitorId,
@@ -112,9 +114,11 @@ export async function trackSiteEvent(payload: {
   }
 }
 
-// Send heartbeat ping to keep online session alive
+// Send heartbeat ping to keep online session alive (paused when offline or hidden tab)
 export async function sendHeartbeatPing(currentPath: string, pageTitle: string): Promise<number | null> {
   if (typeof window === 'undefined') return null;
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return null;
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return null;
   try {
     const visitorId = getOrCreateVisitorId();
     const sessionId = getOrCreateSessionId();
@@ -124,6 +128,7 @@ export async function sendHeartbeatPing(currentPath: string, pageTitle: string):
 
     const res = await fetch('/api/analytics/ping', {
       method: 'POST',
+      credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         visitorId,
@@ -146,13 +151,91 @@ export async function sendHeartbeatPing(currentPath: string, pageTitle: string):
   return null;
 }
 
-// Fetch complete aggregated traffic analytics
+/**
+ * Builds the `GET /api/analytics/stats` URL with strict tier separation:
+ * - General dashboard/public views NEVER append `?detailed=true`.
+ * - `?detailed=true` is only appended when explicitly requested with an authenticated session.
+ */
+export function buildAnalyticsStatsUrl(
+  detailed: boolean = false,
+  isAuthenticated: boolean = false
+): string {
+  if (detailed && isAuthenticated) {
+    return '/api/analytics/stats?detailed=true';
+  }
+  return '/api/analytics/stats';
+}
+
+export interface SiteTrafficStatsResult {
+  data: SiteAnalyticsData | null;
+  status: number;
+  adminAccessDenied?: boolean;
+  notice?: string;
+}
+
+/**
+ * Fetches site traffic analytics with explicit tier separation (`public` vs `detailed` admin view).
+ * Handles 401/403 on `?detailed=true` gracefully with a polite Persian notice ("دسترسی محدود به مدیر سیستم")
+ * and falls back to public summary stats.
+ */
+export async function fetchSiteTrafficStatsWithTier(options?: {
+  detailed?: boolean;
+  isAuthenticated?: boolean;
+}): Promise<SiteTrafficStatsResult> {
+  try {
+    const wantDetailed = Boolean(options?.detailed);
+    const isAuthenticated = Boolean(options?.isAuthenticated);
+
+    if (wantDetailed && !isAuthenticated) {
+      const publicData = await fetchSiteTrafficStats();
+      return {
+        data: publicData,
+        status: 401,
+        adminAccessDenied: true,
+        notice: 'دسترسی محدود به مدیر سیستم',
+      };
+    }
+
+    const url = buildAnalyticsStatsUrl(wantDetailed, isAuthenticated);
+    const res = await fetch(url, {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+    });
+
+    if (res.status === 401 || res.status === 403) {
+      const publicData = wantDetailed ? await fetchSiteTrafficStats() : null;
+      return {
+        data: publicData,
+        status: res.status,
+        adminAccessDenied: true,
+        notice: 'دسترسی محدود به مدیر سیستم',
+      };
+    }
+
+    if (!res.ok) {
+      return { data: null, status: res.status };
+    }
+
+    const data = (await res.json()) as SiteAnalyticsData;
+    return { data, status: 200 };
+  } catch {
+    return { data: null, status: 0 };
+  }
+}
+
+// Fetch complete aggregated traffic analytics (Public summary tier by default)
 export async function fetchSiteTrafficStats(): Promise<SiteAnalyticsData | null> {
   try {
-    const res = await fetch('/api/analytics/stats');
+    const res = await fetch('/api/analytics/stats', {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+    });
     if (!res.ok) return null;
     return await res.json();
   } catch {
     return null;
   }
 }
+

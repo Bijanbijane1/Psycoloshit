@@ -9,7 +9,7 @@
     <meta property="og:description" content="سامانه تعاملی و هوشمند آموزش سرفصل‌های مرجع روان‌شناسی همراه با کتابخانه جامع آفلاین، متون آکادمیک و ساده، کوئیزهای تطبیقی، آزمون‌های بالینی، تحلیل پیشرفت و پشتیبانی تحصیلی هوش مصنوعی." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="theme-color" content="#4338CA" />
+    <meta name="theme-color" content="#1F1B44" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
@@ -22,16 +22,65 @@
     <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
-  <body class="font-sans antialiased bg-slate-50 text-slate-900 selection:bg-indigo-100 selection:text-indigo-900">
+  <body class="font-sans antialiased bg-[#F7F5F0] text-[#24243B] selection:bg-[#EAE4FF] selection:text-[#24243B]">
     <div id="root"></div>
     <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').catch(() => {});
-        });
-      }
+      (function () {
+        var CURRENT_CACHE = 'psychology-pwa-v9';
+        var RELOAD_FLAG = 'pm_sw_v9_activated';
+
+        if ('caches' in window) {
+          caches.keys().then(function (names) {
+            var legacyCaches = names.filter(function (name) {
+              return name !== CURRENT_CACHE;
+            });
+            if (legacyCaches.length > 0) {
+              Promise.all(
+                legacyCaches.map(function (name) {
+                  return caches.delete(name);
+                })
+              ).then(function () {
+                if (!sessionStorage.getItem(RELOAD_FLAG)) {
+                  sessionStorage.setItem(RELOAD_FLAG, '1');
+                  if ('serviceWorker' in navigator) {
+                    navigator.serviceWorker.getRegistrations().then(function (regs) {
+                      Promise.all(
+                        regs.map(function (reg) {
+                          return reg.update();
+                        })
+                      ).finally(function () {
+                        window.location.reload();
+                      });
+                    });
+                  } else {
+                    window.location.reload();
+                  }
+                }
+              });
+            }
+          });
+        }
+
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.addEventListener('controllerchange', function () {
+            if (!sessionStorage.getItem(RELOAD_FLAG)) {
+              sessionStorage.setItem(RELOAD_FLAG, '1');
+              window.location.reload();
+            }
+          });
+          window.addEventListener('load', function () {
+            navigator.serviceWorker
+              .register('/sw.js', { updateViaCache: 'none' })
+              .then(function (reg) {
+                reg.update();
+              })
+              .catch(function () {});
+          });
+        }
+      })();
     </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
+
 

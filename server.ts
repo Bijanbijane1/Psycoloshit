@@ -198,13 +198,58 @@ app.post('/api/analytics/track', (req, res) => {
   }
 });
 
-// Retrieve comprehensive site traffic analytics
-app.get('/api/analytics/stats', (req, res) => {
+// Retrieve comprehensive site traffic analytics (detailed sessions/events restricted to verified admins)
+app.get('/api/analytics/stats', async (req, res) => {
   try {
-    const visitorId = req.query.visitorId ? String(req.query.visitorId) : undefined;
-    const sessionId = req.query.sessionId ? String(req.query.sessionId) : undefined;
+    res.setHeader('Cache-Control', 'no-store');
+    const { parseAdminAllowlist } = await import('./src/worker/analytics.ts');
+    const allowlist = parseAdminAllowlist(process.env.ADMIN_EMAILS, process.env.ADMIN_USER_IDS);
+    let isAuthenticated = false;
+    let isAdmin = false;
 
-    const stats = analyticsManager.getStats(visitorId, sessionId);
+    const token = extractRequestToken(req);
+    if (token) {
+      const tokenHash = await hashSessionToken(token);
+      const sessionResult = userSyncManager.validateSession(tokenHash);
+      if (sessionResult) {
+        isAuthenticated = true;
+        const { user } = sessionResult;
+        const isGoogleAuthenticated = Boolean(user.googleId && user.userId.startsWith('usr_g_'));
+        if (allowlist.isConfigured && isGoogleAuthenticated) {
+          const emailMatch = Boolean(user.email && allowlist.emails.has(user.email.toLowerCase().trim()));
+          const idMatch = allowlist.userIds.has(user.userId);
+          isAdmin = emailMatch || idMatch;
+        }
+      }
+    }
+
+    const detailedParam = String(req.query.detailed || '').toLowerCase();
+    const scopeParam = String(req.query.scope || req.query.view || '').toLowerCase();
+    const headerScope = String(req.headers['x-analytics-scope'] || '').toLowerCase();
+    const explicitlyRequestedDetailed =
+      detailedParam === 'true' ||
+      detailedParam === '1' ||
+      scopeParam === 'admin' ||
+      scopeParam === 'detailed' ||
+      headerScope === 'admin' ||
+      headerScope === 'detailed';
+
+    if (explicitlyRequestedDetailed) {
+      if (!isAuthenticated) {
+        return res.status(401).json({
+          ok: false,
+          error: 'Unauthorized: Verified administrator session is required for detailed analytics.',
+        });
+      }
+      if (!isAdmin) {
+        return res.status(403).json({
+          ok: false,
+          error: 'Forbidden: Verified administrator privileges are required for detailed analytics.',
+        });
+      }
+    }
+
+    const stats = analyticsManager.getStats({ isAdmin });
     return res.json(stats);
   } catch (err) {
     console.error('Analytics stats error:', err);
@@ -411,10 +456,11 @@ app.get('/api/quiz/bank', (req, res) => {
     const limit = req.query.limit ? Number(req.query.limit) : 5;
 
     const questions = questionBankRepo.getQuestions(chapterId, difficulty, limit);
+    const sanitizedQuestions = questions.map(({ correctIndex: _ci, explanation: _exp, ...publicFields }) => publicFields);
     return res.json({
-      count: questions.length,
+      count: sanitizedQuestions.length,
       totalBankSize: questionBankRepo.getTotalCount(),
-      questions,
+      questions: sanitizedQuestions,
     });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to fetch question bank' });
@@ -1091,36 +1137,327 @@ app.post('/api/leaderboard/submit', async (req, res) => {
 // 6. ACADEMIC TRANSCRIPT & REPORT EXPORT ENDPOINT
 // ==============================================================
 
-app.post('/api/reports/student-summary', (req, res) => {
+app.post('/api/reports/student-summary', async (req, res) => {
   try {
-    const { userName, stats, progress, weakestChapters } = req.body;
+    res.setHeader('Cache-Control', 'no-store');
+    if (!validateExpressOrigin(req)) {
+      return res.status(403).json({ ok: false, error: 'Forbidden: Cross-origin request rejected' });
+    }
 
-    const summary = {
-      studentName: userName || 'دانشجوی ممتاز روان‌لینگو',
-      generatedAt: new Date().toLocaleDateString('fa-IR'),
-      overallMastery: `${stats?.overallMastery || 0}٪`,
-      accuracyRate: `${stats?.accuracyRate || 0}٪`,
-      totalStudyMinutes: progress?.totalStudyMinutes || 0,
-      streakDays: progress?.streakDays || 0,
-      completedChaptersCount: (progress?.completedChapters || []).length,
-      unlockedBadgesCount: (progress?.unlockedBadgeIds || []).length,
-      levelStatus:
-        (stats?.accuracyRate || 0) >= 80
-          ? 'ممتاز و تسلط جامع'
-          : (stats?.accuracyRate || 0) >= 60
-          ? 'متوسط رو به رشد'
-          : 'نیازمند مرور مبانی',
-      weakestChapters: weakestChapters || [],
-      recommendation:
-        (stats?.accuracyRate || 0) >= 80
-          ? 'تسلط شما در سرفصل‌های پایه عالی است. پیشنهاد می‌شود تست‌های سرعتی و ترکیبی را شروع نمایید.'
-          : 'پیشنهاد می‌شود پیش از شرکت مجدد در آزمون‌ها، متون خلاصه و نکات کلیدی کتابچه را مرور فرمایید.',
-      verificationStamp: 'تأییدیه رسمی سامانه هوشمند آموزش روان‌شناسی (PsychoMaster Academic Certification)',
-    };
+    const body = req.body;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return res.status(400).json({ ok: false, error: 'Invalid report payload' });
+    }
 
-    return res.json(summary);
+    const { buildStudentSummaryReport } = await import('./src/worker/analytics.ts');
+    const requestedUserId = typeof body.userId === 'string' ? body.userId.trim() : '';
+
+    const rawBearer = extractRequestToken(req);
+    const rawGuest = extractExpressGuestToken(req);
+    const rawToken = rawBearer || rawGuest;
+
+    let verifiedContext: {
+      user: any;
+      verifiedCompletedStages: Set<number>;
+    } | null = null;
+
+    if (rawToken) {
+      const tokenHash = await hashSessionToken(rawToken);
+      const sessionResult = userSyncManager.validateSession(tokenHash);
+      if (!sessionResult) {
+        return res.status(401).json({ ok: false, error: 'Unauthorized: Invalid or expired session token' });
+      }
+      if (requestedUserId && requestedUserId !== sessionResult.user.userId) {
+        return res.status(403).json({ ok: false, error: 'Forbidden: Cannot generate verified report for another user' });
+      }
+      const verifiedCompletedStages = userSyncManager.getVerifiedCompletedStageNumbers(
+        sessionResult.user.userId
+      );
+      verifiedContext = {
+        user: sessionResult.user,
+        verifiedCompletedStages,
+      };
+    } else if (requestedUserId) {
+      return res.status(401).json({ ok: false, error: 'Unauthorized: Session token required to request user report by userId' });
+    }
+
+    const report = buildStudentSummaryReport(body as Record<string, unknown>, verifiedContext);
+    return res.json({ ok: true, verified: report.verified, report });
   } catch (err) {
-    return res.status(500).json({ error: 'Failed to generate student report' });
+    return res.status(500).json({ ok: false, error: 'Failed to generate student report' });
+  }
+});
+
+// ==============================================================
+// 7. ENTRANCE EXAM SIMULATOR ENDPOINTS (Phase 10B)
+// ==============================================================
+
+async function resolveExpressExamSessionUser(req: express.Request, body?: Record<string, unknown>) {
+  const rawBearer = extractRequestToken(req);
+  const rawGuest =
+    extractExpressGuestToken(req) ||
+    (body && typeof body.guestSessionToken === 'string' ? body.guestSessionToken.trim() : '');
+
+  if (rawBearer) {
+    const tokenHash = await hashSessionToken(rawBearer);
+    const session = userSyncManager.validateSession(tokenHash);
+    if (session) return session.user;
+  }
+
+  if (rawGuest) {
+    const guestHash = await hashSessionToken(rawGuest);
+    const guestSession = userSyncManager.validateSession(guestHash);
+    if (guestSession) return guestSession.user;
+  }
+
+  return null;
+}
+
+app.get('/api/exams/blueprints', async (_req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    const { expressExamStore } = await import('./src/server/examStore.ts');
+    const blueprints = await expressExamStore.repo.listBlueprints();
+    return res.json({ ok: true, blueprints });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: 'Failed to load exam blueprints' });
+  }
+});
+
+app.get('/api/exams/history', async (req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    const user = await resolveExpressExamSessionUser(req);
+    if (!user) {
+      return res.status(401).json({ ok: false, error: 'Unauthorized: Active session required to view exam history' });
+    }
+    const requestedUserId = typeof req.query.userId === 'string' ? req.query.userId.trim() : '';
+    if (requestedUserId && requestedUserId !== user.userId) {
+      return res.status(403).json({ ok: false, error: 'Forbidden: Cannot view another user exam history' });
+    }
+    const rawLimit = req.query.limit;
+    const limit = rawLimit !== undefined ? Number(rawLimit) : 20;
+    const { expressExamStore } = await import('./src/server/examStore.ts');
+    expressExamStore.ensureUserMirror(user);
+    const history = await expressExamStore.repo.getUserExamHistory(
+      user.userId,
+      Number.isFinite(limit) ? limit : 20
+    );
+    return res.json({ ok: true, ...history });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: 'Failed to load exam history' });
+  }
+});
+
+app.post('/api/exams/attempts/start', async (req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    if (!validateExpressOrigin(req)) {
+      return res.status(403).json({ ok: false, error: 'Forbidden: Cross-origin request rejected' });
+    }
+    const body = (req.body || {}) as Record<string, unknown>;
+    const user = await resolveExpressExamSessionUser(req, body);
+    if (!user) {
+      return res.status(401).json({ ok: false, error: 'Unauthorized: Active session token is required to start an exam' });
+    }
+    const requestedUserId = typeof body.userId === 'string' ? body.userId.trim() : '';
+    if (requestedUserId && requestedUserId !== user.userId) {
+      return res.status(403).json({ ok: false, error: 'Forbidden: Cannot start exam attempt for another user' });
+    }
+    const blueprintId = typeof body.blueprintId === 'string' ? body.blueprintId.trim() : '';
+    const idempotencyKey =
+      typeof body.idempotencyKey === 'string' ? body.idempotencyKey.trim() : undefined;
+
+    const { expressExamStore } = await import('./src/server/examStore.ts');
+    expressExamStore.ensureUserMirror(user);
+    const result = await expressExamStore.repo.startAttempt({
+      userId: user.userId,
+      blueprintId,
+      idempotencyKey,
+    });
+    if (!result.ok) {
+      return res.status(result.status).json({ ok: false, error: result.error });
+    }
+    return res.status(result.status).json({
+      ok: true,
+      mode: 'active',
+      ...result.data,
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: 'Failed to start exam attempt' });
+  }
+});
+
+app.get('/api/exams/attempts/:attemptId', async (req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    const user = await resolveExpressExamSessionUser(req);
+    if (!user) {
+      return res.status(401).json({ ok: false, error: 'Unauthorized' });
+    }
+    const { expressExamStore } = await import('./src/server/examStore.ts');
+    expressExamStore.ensureUserMirror(user);
+    const loaded = await expressExamStore.repo.getAttemptForUser(req.params.attemptId, user.userId);
+    if (!loaded.ok) {
+      return res.status(loaded.status).json({ ok: false, error: loaded.error });
+    }
+    return res.json({
+      ok: true,
+      mode: loaded.mode,
+      ...loaded.data,
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: 'Failed to load exam attempt' });
+  }
+});
+
+app.put('/api/exams/attempts/:attemptId/answer', async (req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    if (!validateExpressOrigin(req)) {
+      return res.status(403).json({ ok: false, error: 'Forbidden: Cross-origin request rejected' });
+    }
+    const body = (req.body || {}) as Record<string, unknown>;
+    const user = await resolveExpressExamSessionUser(req, body);
+    if (!user) {
+      return res.status(401).json({ ok: false, error: 'Unauthorized' });
+    }
+    const questionId = typeof body.questionId === 'string' ? body.questionId.trim() : '';
+    const selectedIndex =
+      body.selectedIndex === null
+        ? null
+        : typeof body.selectedIndex === 'number'
+        ? body.selectedIndex
+        : undefined;
+    const isFlagged = typeof body.isFlagged === 'boolean' ? body.isFlagged : undefined;
+    const timeSpentSeconds =
+      typeof body.timeSpentSeconds === 'number' ? body.timeSpentSeconds : undefined;
+    const clientUpdatedAt =
+      typeof body.clientUpdatedAt === 'string' && body.clientUpdatedAt.trim()
+        ? body.clientUpdatedAt.trim()
+        : undefined;
+
+    const { expressExamStore } = await import('./src/server/examStore.ts');
+    expressExamStore.ensureUserMirror(user);
+    const saveResult = await expressExamStore.repo.saveAnswer({
+      attemptId: req.params.attemptId,
+      userId: user.userId,
+      questionId,
+      selectedIndex,
+      isFlagged,
+      timeSpentSeconds,
+      clientUpdatedAt,
+    });
+    if (!saveResult.ok) {
+      return res.status(saveResult.status).json({
+        ok: false,
+        code: saveResult.code,
+        error: saveResult.error,
+      });
+    }
+    return res.json({
+      ok: true,
+      answer: saveResult.answer,
+      remainingSeconds: saveResult.remainingSeconds,
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: 'Failed to save exam answer' });
+  }
+});
+
+app.post('/api/exams/attempts/:attemptId/answer', async (req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    if (!validateExpressOrigin(req)) {
+      return res.status(403).json({ ok: false, error: 'Forbidden: Cross-origin request rejected' });
+    }
+    const body = (req.body || {}) as Record<string, unknown>;
+    const user = await resolveExpressExamSessionUser(req, body);
+    if (!user) {
+      return res.status(401).json({ ok: false, error: 'Unauthorized' });
+    }
+    const questionId = typeof body.questionId === 'string' ? body.questionId.trim() : '';
+    const selectedIndex =
+      body.selectedIndex === null
+        ? null
+        : typeof body.selectedIndex === 'number'
+        ? body.selectedIndex
+        : undefined;
+    const isFlagged = typeof body.isFlagged === 'boolean' ? body.isFlagged : undefined;
+    const timeSpentSeconds =
+      typeof body.timeSpentSeconds === 'number' ? body.timeSpentSeconds : undefined;
+    const clientUpdatedAt =
+      typeof body.clientUpdatedAt === 'string' && body.clientUpdatedAt.trim()
+        ? body.clientUpdatedAt.trim()
+        : undefined;
+
+    const { expressExamStore } = await import('./src/server/examStore.ts');
+    expressExamStore.ensureUserMirror(user);
+    const saveResult = await expressExamStore.repo.saveAnswer({
+      attemptId: req.params.attemptId,
+      userId: user.userId,
+      questionId,
+      selectedIndex,
+      isFlagged,
+      timeSpentSeconds,
+      clientUpdatedAt,
+    });
+    if (!saveResult.ok) {
+      return res.status(saveResult.status).json({
+        ok: false,
+        code: saveResult.code,
+        error: saveResult.error,
+      });
+    }
+    return res.json({
+      ok: true,
+      answer: saveResult.answer,
+      remainingSeconds: saveResult.remainingSeconds,
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: 'Failed to save exam answer' });
+  }
+});
+
+app.post('/api/exams/attempts/:attemptId/submit', async (req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    if (!validateExpressOrigin(req)) {
+      return res.status(403).json({ ok: false, error: 'Forbidden: Cross-origin request rejected' });
+    }
+    const body = (req.body || {}) as Record<string, unknown>;
+    const user = await resolveExpressExamSessionUser(req, body);
+    if (!user) {
+      return res.status(401).json({ ok: false, error: 'Unauthorized' });
+    }
+
+    const { expressExamStore } = await import('./src/server/examStore.ts');
+    expressExamStore.ensureUserMirror(user);
+    const submitResult = await expressExamStore.repo.submitAttempt({
+      attemptId: req.params.attemptId,
+      userId: user.userId,
+      answers: Array.isArray(body.answers) ? (body.answers as any) : undefined,
+      durationSecondsUsed:
+        typeof body.durationSecondsUsed === 'number' ? body.durationSecondsUsed : undefined,
+    });
+    if (!submitResult.ok) {
+      return res.status(submitResult.status).json({ ok: false, error: submitResult.error });
+    }
+    if (!submitResult.data.alreadySubmitted && submitResult.data.xpAwarded > 0) {
+      userSyncManager.awardXp({
+        userId: user.userId,
+        xpEarned: submitResult.data.xpAwarded,
+        reason: 'exam_completion',
+        idempotencyKey: `exam_completion:${req.params.attemptId}`,
+      });
+    }
+    return res.json({
+      ok: true,
+      mode: 'submitted',
+      ...submitResult.data,
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: 'Failed to submit exam attempt' });
   }
 });
 
