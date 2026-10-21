@@ -1,6 +1,11 @@
 import { UserProgress } from '../types/psychology';
 import { SyncedUserProfile } from '../worker/db/schema';
-import { loadUserProgress, mergeCompletedStages } from './storage';
+import {
+  loadUserProgress,
+  saveUserProgress,
+  mergeCompletedStages,
+  reconcileUserProgressWithSyncedProfile,
+} from './storage';
 import { toEnglishDigits } from './persianDigits';
 import { authService } from '../services/authService';
 
@@ -92,9 +97,34 @@ export function setUserAvatar(avatar: string): void {
   } catch {}
 }
 
+/**
+ * Reconciles a server-returned `SyncedUserProfile` directly into `localStorage`
+ * even when `completedStages` is unchanged (e.g. XP-only, quiz, chapter, Pomodoro, or badge updates).
+ */
+export function applySyncedProfileToLocalStorage(
+  syncedProfile: Partial<SyncedUserProfile> | null | undefined,
+  userId?: string
+): UserProgress | null {
+  if (typeof window === 'undefined' || !syncedProfile || typeof syncedProfile !== 'object') {
+    return null;
+  }
+  try {
+    const targetUserId = userId || syncedProfile.userId || getOrCreateUserId();
+    const current = loadUserProgress(targetUserId);
+    const reconciled = reconcileUserProgressWithSyncedProfile(current, syncedProfile);
+    if (reconciled !== current) {
+      saveUserProgress(reconciled, targetUserId);
+    }
+    return reconciled;
+  } catch {
+    return null;
+  }
+}
+
 function notifyUserSynced(profile?: SyncedUserProfile) {
   if (typeof window === 'undefined' || !profile) return;
   try {
+    applySyncedProfileToLocalStorage(profile, profile.userId);
     window.dispatchEvent(new CustomEvent('psychomaster:user-synced', { detail: profile }));
   } catch {}
 }
@@ -238,14 +268,23 @@ export function buildLeaderboardUrl(
 
 /**
  * Generates a deterministic or attempt-scoped idempotencyKey for `/api/leaderboard/submit`
- * so network retries for the same quiz/stage attempt never double-award XP.
+ * so network retries for the same quiz/stage/badge/chapter/Pomodoro attempt never double-award XP.
  */
 export function generateAttemptIdempotencyKey(
   reward: {
-    rewardType: 'stage_completion' | 'quiz_answer' | string;
+    rewardType:
+      | 'stage_completion'
+      | 'quiz_answer'
+      | 'badge_unlock'
+      | 'chapter_completion'
+      | 'pomodoro'
+      | 'study_session'
+      | string;
     stageNumber?: number;
     chapterId?: string;
     questionId?: string;
+    badgeId?: string;
+    sessionId?: string;
   },
   attemptId?: string
 ): string {
@@ -253,6 +292,18 @@ export function generateAttemptIdempotencyKey(
   if (reward.rewardType === 'stage_completion') {
     const stageNum = Math.max(1, Math.trunc(Number(reward.stageNumber) || 1));
     return cleanAttempt ? `stage:${stageNum}:attempt:${cleanAttempt}` : `stage:${stageNum}`;
+  }
+  if (reward.rewardType === 'badge_unlock') {
+    const bId = toEnglishDigits(String(reward.badgeId || 'badge').trim());
+    return `badge_unlock:${bId}`;
+  }
+  if (reward.rewardType === 'chapter_completion') {
+    const ch = toEnglishDigits(String(reward.chapterId || 'ch').trim());
+    return `chapter_completion:${ch}`;
+  }
+  if (reward.rewardType === 'pomodoro' || reward.rewardType === 'study_session') {
+    const sId = toEnglishDigits(String(reward.sessionId || cleanAttempt || 'session').trim());
+    return `pomodoro:${sId}`;
   }
   const ch = toEnglishDigits(String(reward.chapterId || 'ch').trim());
   const q = toEnglishDigits(String(reward.questionId || 'q').trim());
@@ -281,12 +332,14 @@ export async function fetchLiveLeaderboard(options?: {
 } | null> {
   try {
     const cachedAuthUser = authService.getCachedUser();
-    const isAuthenticated = options?.isAuthenticated ?? Boolean(cachedAuthUser);
+    const guestToken = getGuestSessionToken();
+    const isAuthenticated = options?.isAuthenticated ?? Boolean(cachedAuthUser || guestToken);
     const targetUserId = options?.userId || cachedAuthUser?.userId || getOrCreateUserId();
     const url = buildLeaderboardUrl(targetUserId, isAuthenticated);
 
     const headers: Record<string, string> = {
       'Cache-Control': 'no-store',
+      ...(guestToken ? { 'X-Guest-Session-Token': guestToken } : {}),
     };
     if (options?.bearerToken) {
       headers['Authorization'] = `Bearer ${options.bearerToken}`;
@@ -304,7 +357,13 @@ export async function fetchLiveLeaderboard(options?: {
 }
 
 export interface VerifiableRewardSubmission {
-  rewardType: 'stage_completion' | 'quiz_answer';
+  rewardType:
+    | 'stage_completion'
+    | 'quiz_answer'
+    | 'badge_unlock'
+    | 'chapter_completion'
+    | 'pomodoro'
+    | 'study_session';
   stageNumber?: number;
   stars?: number;
   score?: number;
@@ -317,6 +376,12 @@ export interface VerifiableRewardSubmission {
   xpEarned?: number;
   idempotencyKey?: string;
   attemptId?: string;
+  badgeId?: string;
+  minutes?: number;
+  seconds?: number;
+  sessionId?: string;
+  startedAt?: string;
+  completedAt?: string;
 }
 
 export interface RewardSubmissionResult {

@@ -41,6 +41,9 @@ export interface AwardXpParams {
   amount: number;
   reason?: string;
   stageRecord?: StageCompletionRecord;
+  chapterId?: string;
+  badgeId?: string;
+  pomodoroMinutes?: number;
   streakDays?: number;
   name?: string;
   avatar?: string;
@@ -255,6 +258,9 @@ export class D1UserRepository {
       amount,
       reason = 'stage_completion',
       stageRecord,
+      chapterId,
+      badgeId,
+      pomodoroMinutes,
       streakDays,
       name,
       avatar,
@@ -359,15 +365,40 @@ export class D1UserRepository {
         )
       : null;
 
+    const updatedCompletedChaptersJson =
+      typeof chapterId === 'string' && chapterId.trim()
+        ? JSON.stringify(
+            Array.from(new Set([...(existingUser.completedChapters || []), chapterId.trim()]))
+          )
+        : null;
+
+    const updatedUnlockedBadgesJson =
+      typeof badgeId === 'string' && badgeId.trim()
+        ? JSON.stringify(
+            Array.from(new Set([...(existingUser.unlockedBadgeIds || []), badgeId.trim()]))
+          )
+        : null;
+
+    const studyMinutesDelta =
+      typeof pomodoroMinutes === 'number' &&
+      Number.isInteger(pomodoroMinutes) &&
+      pomodoroMinutes >= 1 &&
+      pomodoroMinutes <= 60
+        ? pomodoroMinutes
+        : 0;
+
     const updateUserStmt = this.db
       .prepare(`
         UPDATE users
         SET
           xp = xp + ?,
           streak_days = COALESCE(?, streak_days),
+          total_study_minutes = total_study_minutes + ?,
           name = COALESCE(?, name),
           avatar = COALESCE(?, avatar),
           completed_stages = COALESCE(?, completed_stages),
+          completed_chapters = COALESCE(?, completed_chapters),
+          unlocked_badge_ids = COALESCE(?, unlocked_badge_ids),
           last_synced_at = ?,
           updated_at = datetime('now')
         WHERE user_id = ?
@@ -375,9 +406,12 @@ export class D1UserRepository {
       .bind(
         amount,
         cleanStreakDays,
+        studyMinutesDelta,
         cleanName,
         cleanAvatar,
         updatedCompletedStagesJson,
+        updatedCompletedChaptersJson,
+        updatedUnlockedBadgesJson,
         nowIso,
         cleanUserId
       );
@@ -445,6 +479,30 @@ export class D1UserRepository {
       }
     }
     return completed;
+  }
+
+  /**
+   * Read verified quiz_answer idempotency keys directly from authoritative xp_ledger entries.
+   */
+  async getVerifiedQuizIdempotencyKeys(userId: string): Promise<Set<string>> {
+    const keys = new Set<string>();
+    if (!userId || typeof userId !== 'string' || !userId.trim()) {
+      return keys;
+    }
+    const cleanUserId = userId.trim();
+    const res = await this.db
+      .prepare(
+        "SELECT idempotency_key FROM xp_ledger WHERE user_id = ? AND idempotency_key LIKE 'quiz_answer:%'"
+      )
+      .bind(cleanUserId)
+      .all<{ idempotency_key: string }>();
+
+    for (const row of res.results || []) {
+      if (row.idempotency_key) {
+        keys.add(String(row.idempotency_key));
+      }
+    }
+    return keys;
   }
 
   /**

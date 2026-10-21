@@ -1,21 +1,106 @@
 // Web Audio API sound synthesizer for authentic Duolingo tactile feedback
 
+export type DuoSoundType = 'correct' | 'wrong' | 'click' | 'complete' | 'chest' | 'pair_match' | 'pair_error' | 'pop';
+
+const AUDIO_MUTE_STORAGE_KEY = 'duo_audio_muted';
+const USER_PROGRESS_STORAGE_KEY = 'psychomaster_user_progress_v1';
+
 let audioCtx: AudioContext | null = null;
-let isMuted: boolean = typeof window !== 'undefined' ? localStorage.getItem('duo_audio_muted') === 'true' : false;
+let playedSoundCount = 0;
+let lastPlayedSoundType: DuoSoundType | null = null;
+
+function readInitialMuteState(): boolean {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const progressRaw = window.localStorage.getItem(USER_PROGRESS_STORAGE_KEY);
+      if (progressRaw) {
+        const parsed = JSON.parse(progressRaw);
+        if (typeof parsed?.customSettings?.soundEnabled === 'boolean') {
+          const mutedFromSettings = !parsed.customSettings.soundEnabled;
+          window.localStorage.setItem(AUDIO_MUTE_STORAGE_KEY, String(mutedFromSettings));
+          return mutedFromSettings;
+        }
+      }
+      const saved = window.localStorage.getItem(AUDIO_MUTE_STORAGE_KEY);
+      if (saved === 'true') return true;
+      if (saved === 'false') return false;
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return false;
+}
+
+let isMuted: boolean = readInitialMuteState();
 
 export const getAudioMuted = (): boolean => isMuted;
 
-export const setAudioMuted = (muted: boolean): void => {
-  isMuted = muted;
-  if (typeof window !== 'undefined') {
-    localStorage.setItem('duo_audio_muted', String(muted));
+export const isSoundEnabled = (): boolean => !isMuted;
+
+export const setAudioMuted = (muted: boolean, options?: { skipProgressSync?: boolean }): void => {
+  isMuted = Boolean(muted);
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem(AUDIO_MUTE_STORAGE_KEY, String(isMuted));
+      if (!options?.skipProgressSync) {
+        const progressRaw = window.localStorage.getItem(USER_PROGRESS_STORAGE_KEY);
+        if (progressRaw) {
+          const parsed = JSON.parse(progressRaw);
+          if (parsed && typeof parsed === 'object') {
+            parsed.customSettings = {
+              ...(parsed.customSettings || {}),
+              soundEnabled: !isMuted,
+            };
+            window.localStorage.setItem(USER_PROGRESS_STORAGE_KEY, JSON.stringify(parsed));
+          }
+        }
+      }
+    }
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+      window.dispatchEvent(
+        new CustomEvent('psychomaster:audio-mute-changed', {
+          detail: { muted: isMuted, soundEnabled: !isMuted },
+        })
+      );
+    }
+  } catch {
+    // ignore storage errors
   }
+};
+
+export const setSoundEnabled = (enabled: boolean, options?: { skipProgressSync?: boolean }): void => {
+  setAudioMuted(!enabled, options);
 };
 
 export const toggleAudioMuted = (): boolean => {
   const next = !isMuted;
   setAudioMuted(next);
+  if (!next) {
+    playDuoSound('click');
+  }
   return next;
+};
+
+export const syncAudioStateFromStorage = (): boolean => {
+  isMuted = readInitialMuteState();
+  return isMuted;
+};
+
+export const getAudioPlaybackStats = (): {
+  isMuted: boolean;
+  soundEnabled: boolean;
+  playedSoundCount: number;
+  lastPlayedSoundType: DuoSoundType | null;
+} => ({
+  isMuted,
+  soundEnabled: !isMuted,
+  playedSoundCount,
+  lastPlayedSoundType,
+});
+
+export const resetAudioPlaybackStats = (): void => {
+  playedSoundCount = 0;
+  lastPlayedSoundType = null;
 };
 
 function getAudioContext(): AudioContext | null {
@@ -33,13 +118,13 @@ function getAudioContext(): AudioContext | null {
   return audioCtx;
 }
 
-export const playDuoSound = (
-  type: 'correct' | 'wrong' | 'click' | 'complete' | 'chest' | 'pair_match' | 'pair_error' | 'pop'
-) => {
-  if (isMuted) return;
+export const playDuoSound = (type: DuoSoundType): boolean => {
+  if (isMuted) return false;
+  playedSoundCount += 1;
+  lastPlayedSoundType = type;
   try {
     const ctx = getAudioContext();
-    if (!ctx) return;
+    if (!ctx) return true;
 
     const now = ctx.currentTime;
 
@@ -57,7 +142,7 @@ export const playDuoSound = (
         osc.start(now + idx * 0.07);
         osc.stop(now + idx * 0.07 + 0.22);
       });
-      return;
+      return true;
     }
 
     if (type === 'pair_error') {
@@ -73,7 +158,7 @@ export const playDuoSound = (
       gain.connect(ctx.destination);
       osc.start(now);
       osc.stop(now + 0.18);
-      return;
+      return true;
     }
 
     if (type === 'pop') {
@@ -89,7 +174,7 @@ export const playDuoSound = (
       gain.connect(ctx.destination);
       osc.start(now);
       osc.stop(now + 0.07);
-      return;
+      return true;
     }
 
     if (type === 'correct') {
@@ -167,4 +252,5 @@ export const playDuoSound = (
   } catch {
     // Non-blocking fallback if audio context blocked by browser
   }
+  return true;
 };

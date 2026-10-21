@@ -3729,6 +3729,208 @@ async function runTestSuite() {
     'pruneExpiredAnalytics deletes analytics_daily rows >90 days old, analytics_events rows >7 days old, and caps stored events at 200'
   );
 
+  // ---------------------------------------------------------------
+  // 17. PHASE 10C.4: POMODORO, CHAPTER COMPLETION, & BADGE ELIGIBILITY SERVER INTEGRITY
+  // ---------------------------------------------------------------
+  console.log('\nTest Suite 17: Phase 10C.4 Pomodoro, Chapter Completion & Server Badge Eligibility Integrity');
+
+  const s17UserRes = await userRepo.createOrUpdateGoogleUser({
+    googleId: 'google_sub_phase10c4_user',
+    email: 'phase10c4@tehran.ac.ir',
+    name: 'کاربر تست مرحله ۱۰ج۴',
+  });
+  const s17UserId = s17UserRes.user.userId;
+  const s17Token = generateSessionToken();
+  await userRepo.createSession(s17UserId, await hashSessionToken(s17Token));
+
+  // 17.1. Server rejects unearned badge_unlock (e.g., badge-first-quiz before any quiz is answered)
+  const s17UnearnedQuizBadgeRes = await workerDefault.fetch(
+    new Request('http://localhost/api/leaderboard/submit', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: `session_token=${s17Token}`,
+      },
+      body: JSON.stringify({
+        userId: s17UserId,
+        rewardType: 'badge_unlock',
+        badgeId: 'badge-first-quiz',
+      }),
+    }),
+    authEnv,
+    mockCtx
+  );
+  assert(
+    s17UnearnedQuizBadgeRes.status === 400,
+    '17.1: POST /api/leaderboard/submit rejects badge-first-quiz when user has 0 verified quiz answers in xp_ledger (400)'
+  );
+
+  // 17.2. Completing a valid chapter via chapter_completion awards +20 XP once and updates completedChapters
+  const s17Ch1Res = await workerDefault.fetch(
+    new Request('http://localhost/api/leaderboard/submit', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: `session_token=${s17Token}`,
+      },
+      body: JSON.stringify({
+        userId: s17UserId,
+        rewardType: 'chapter_completion',
+        chapterId: 'ch-1',
+      }),
+    }),
+    authEnv,
+    mockCtx
+  );
+  const s17Ch1Json = (await s17Ch1Res.json()) as any;
+  assert(
+    s17Ch1Res.status === 200 &&
+      s17Ch1Json.applied === true &&
+      s17Ch1Json.awardedXp === 20 &&
+      s17Ch1Json.updatedXp === 20 &&
+      Array.isArray(s17Ch1Json.profile?.completedChapters) &&
+      s17Ch1Json.profile.completedChapters.includes('ch-1'),
+    '17.2: POST /api/leaderboard/submit with chapter_completion (ch-1) awards +20 XP and records ch-1 in completedChapters'
+  );
+
+  // Duplicate chapter_completion is idempotent and awards 0 additional XP
+  const s17Ch1DupRes = await workerDefault.fetch(
+    new Request('http://localhost/api/leaderboard/submit', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: `session_token=${s17Token}`,
+      },
+      body: JSON.stringify({
+        userId: s17UserId,
+        rewardType: 'chapter_completion',
+        chapterId: 'ch-1',
+      }),
+    }),
+    authEnv,
+    mockCtx
+  );
+  const s17Ch1DupJson = (await s17Ch1DupRes.json()) as any;
+  assert(
+    s17Ch1DupRes.status === 200 &&
+      s17Ch1DupJson.applied === false &&
+      s17Ch1DupJson.alreadyClaimed === true &&
+      s17Ch1DupJson.awardedXp === 0 &&
+      s17Ch1DupJson.updatedXp === 20,
+    '17.3: Duplicate chapter_completion submission returns alreadyClaimed=true and awards 0 XP'
+  );
+
+  // 17.4. Valid Pomodoro session awards canonical +35 XP (for 25m), increments totalStudyMinutes by 25, and deduplicates
+  const s17PomoRes = await workerDefault.fetch(
+    new Request('http://localhost/api/leaderboard/submit', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: `session_token=${s17Token}`,
+      },
+      body: JSON.stringify({
+        userId: s17UserId,
+        rewardType: 'pomodoro',
+        sessionId: 'pomo_s17_valid_25m',
+        chapterId: 'ch-1',
+        seconds: 25 * 60,
+      }),
+    }),
+    authEnv,
+    mockCtx
+  );
+  const s17PomoJson = (await s17PomoRes.json()) as any;
+  assert(
+    s17PomoRes.status === 200 &&
+      s17PomoJson.applied === true &&
+      s17PomoJson.awardedXp === 35 &&
+      s17PomoJson.updatedXp === 55 &&
+      s17PomoJson.profile?.totalStudyMinutes === 25,
+    '17.4: Valid 25-min Pomodoro submission awards +35 XP (total 55 XP) and increments totalStudyMinutes by 25'
+  );
+
+  // 17.5. Answering a verified quiz unlocks eligibility for badge-first-quiz on server
+  const s17QuizRes = await workerDefault.fetch(
+    new Request('http://localhost/api/leaderboard/submit', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: `session_token=${s17Token}`,
+      },
+      body: JSON.stringify({
+        userId: s17UserId,
+        rewardType: 'quiz_answer',
+        chapterId: 'ch-1',
+        questionId: 'q-1-1',
+        userAnswer: 1,
+        isCorrect: true,
+      }),
+    }),
+    authEnv,
+    mockCtx
+  );
+  assert(s17QuizRes.status === 200, '17.5a: Verified quiz_answer submission succeeds (200)');
+
+  const s17EarnedQuizBadgeRes = await workerDefault.fetch(
+    new Request('http://localhost/api/leaderboard/submit', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: `session_token=${s17Token}`,
+      },
+      body: JSON.stringify({
+        userId: s17UserId,
+        rewardType: 'badge_unlock',
+        badgeId: 'badge-first-quiz',
+      }),
+    }),
+    authEnv,
+    mockCtx
+  );
+  const s17EarnedQuizBadgeJson = (await s17EarnedQuizBadgeRes.json()) as any;
+  assert(
+    s17EarnedQuizBadgeRes.status === 200 &&
+      s17EarnedQuizBadgeJson.applied === true &&
+      s17EarnedQuizBadgeJson.awardedXp === 50 &&
+      s17EarnedQuizBadgeJson.updatedXp === 55 + 10 + 50 &&
+      Array.isArray(s17EarnedQuizBadgeJson.profile?.unlockedBadgeIds) &&
+      s17EarnedQuizBadgeJson.profile.unlockedBadgeIds.includes('badge-first-quiz'),
+    '17.5b: Server awards +50 XP for badge-first-quiz once user has a verified quiz_answer in xp_ledger'
+  );
+
+  // 17.6. Express UserSyncManager parity for Pomodoro, chapter_completion, and verified quiz keys
+  const s17ExpressUserId = 'usr_express_10c4';
+  userSyncManager.syncUser({ userId: s17ExpressUserId, name: 'کاربر اکسپرس ۱۰ج۴' });
+  userSyncManager.awardXp({
+    userId: s17ExpressUserId,
+    xpEarned: 20,
+    reason: 'chapter_completion',
+    chapterId: 'ch-1',
+    idempotencyKey: 'chapter_completion:ch-1',
+  });
+  userSyncManager.awardXp({
+    userId: s17ExpressUserId,
+    xpEarned: 35,
+    reason: 'study_session',
+    pomodoroMinutes: 25,
+    idempotencyKey: 'pomodoro:pomo_exp_25m',
+  });
+  userSyncManager.awardXp({
+    userId: s17ExpressUserId,
+    xpEarned: 10,
+    reason: 'quiz_completion',
+    idempotencyKey: 'quiz_answer:ch-1:q-1-1',
+  });
+  const s17ExpressUser = userSyncManager.getUser(s17ExpressUserId)!;
+  const s17ExpressQuizKeys = userSyncManager.getVerifiedQuizIdempotencyKeys(s17ExpressUserId);
+  assert(
+    s17ExpressUser.xp === 65 &&
+      s17ExpressUser.totalStudyMinutes === 25 &&
+      s17ExpressUser.completedChapters.includes('ch-1') &&
+      s17ExpressQuizKeys.has('quiz_answer:ch-1:q-1-1'),
+    '17.6: Express UserSyncManager tracks chapter_completion, pomodoro study minutes, and verified quiz idempotency keys'
+  );
+
   console.log('\n====================================================');
   console.log(`ALL TESTS PASSED! (${passed} checks passed, ${failed} failed)`);
   console.log('====================================================\n');

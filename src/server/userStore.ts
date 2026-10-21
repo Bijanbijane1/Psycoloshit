@@ -561,6 +561,9 @@ export class UserSyncManager {
     xpEarned: number;
     reason?: string;
     stageRecord?: StageCompletionRecord;
+    chapterId?: string;
+    badgeId?: string;
+    pomodoroMinutes?: number;
     streakDays?: number;
     name?: string;
     avatar?: string;
@@ -644,6 +647,24 @@ export class UserSyncManager {
         [String(params.stageRecord.stageNumber)]: params.stageRecord,
       });
     }
+    if (typeof params.chapterId === 'string' && params.chapterId.trim()) {
+      existing.completedChapters = Array.from(
+        new Set([...(existing.completedChapters || []), params.chapterId.trim()])
+      );
+    }
+    if (typeof params.badgeId === 'string' && params.badgeId.trim()) {
+      existing.unlockedBadgeIds = Array.from(
+        new Set([...(existing.unlockedBadgeIds || []), params.badgeId.trim()])
+      );
+    }
+    if (
+      typeof params.pomodoroMinutes === 'number' &&
+      Number.isInteger(params.pomodoroMinutes) &&
+      params.pomodoroMinutes >= 1 &&
+      params.pomodoroMinutes <= 60
+    ) {
+      existing.totalStudyMinutes = (existing.totalStudyMinutes || 0) + params.pomodoroMinutes;
+    }
     existing.lastSyncedAt = new Date().toISOString();
 
     this.users.set(cleanUserId, existing);
@@ -689,6 +710,42 @@ export class UserSyncManager {
     }
 
     return completed;
+  }
+
+  public getVerifiedQuizIdempotencyKeys(userId: string): Set<string> {
+    const keys = new Set<string>();
+    if (!userId || typeof userId !== 'string' || !userId.trim()) {
+      return keys;
+    }
+    const cleanUserId = userId.trim();
+    const prefix = `${cleanUserId}:`;
+
+    for (const k of this.mergedKeys) {
+      if (k.startsWith(`${prefix}quiz_answer:`)) {
+        keys.add(k.slice(prefix.length));
+      } else if (k.startsWith('quiz_answer:')) {
+        keys.add(k);
+      }
+    }
+
+    if (this.sqliteDb) {
+      try {
+        const rows = this.sqliteDb
+          .prepare(
+            "SELECT idempotency_key FROM xp_ledger WHERE user_id = ? AND (idempotency_key LIKE 'quiz_answer:%' OR idempotency_key LIKE ?)"
+          )
+          .all(cleanUserId, `${cleanUserId}:quiz_answer:%`) as any[];
+        for (const r of rows) {
+          const raw = String(r.idempotency_key || '');
+          const clean = raw.startsWith(prefix) ? raw.slice(prefix.length) : raw;
+          if (clean.startsWith('quiz_answer:')) {
+            keys.add(clean);
+          }
+        }
+      } catch {}
+    }
+
+    return keys;
   }
 
   public getUser(userId: string): SyncedUserProfile | null {

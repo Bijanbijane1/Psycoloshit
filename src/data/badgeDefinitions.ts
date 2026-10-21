@@ -1,5 +1,6 @@
 import { BadgeDefinition, BadgeProgressInfo } from '../types/badges';
 import { Section, UserProgress } from '../types/psychology';
+import { calculateAuthoritativeUserXp } from '../utils/storage';
 
 export const BADGE_DEFINITIONS: BadgeDefinition[] = [
   // ----------------------------------------------------
@@ -254,34 +255,54 @@ export function evaluateBadgeProgress(
     }
 
     case 'badge-first-quiz': {
-      currentValue = correctCount;
-      isUnlocked = correctCount >= 1;
+      const actualQuizHistory = quizHistory.filter(
+        (h) => !h.questionId.startsWith('stage-') && !h.questionId.startsWith('chapter-')
+      );
+      const actualQuizCorrect = actualQuizHistory.filter((h) => h.isCorrect).length;
+      currentValue = actualQuizCorrect;
+      isUnlocked = actualQuizCorrect >= 1;
       break;
     }
 
     case 'badge-quiz-5': {
-      currentValue = quizHistory.length;
-      isUnlocked = quizHistory.length >= 5;
+      const actualQuizHistory = quizHistory.filter(
+        (h) => !h.questionId.startsWith('stage-') && !h.questionId.startsWith('chapter-')
+      );
+      currentValue = actualQuizHistory.length;
+      isUnlocked = actualQuizHistory.length >= 5;
       break;
     }
 
     case 'badge-quiz-15': {
-      currentValue = quizHistory.length;
-      isUnlocked = quizHistory.length >= 15;
+      const actualQuizHistory = quizHistory.filter(
+        (h) => !h.questionId.startsWith('stage-') && !h.questionId.startsWith('chapter-')
+      );
+      currentValue = actualQuizHistory.length;
+      isUnlocked = actualQuizHistory.length >= 15;
       break;
     }
 
     case 'badge-sharpshooter': {
-      const accuracy = quizHistory.length > 0 ? (correctCount / quizHistory.length) * 100 : 0;
+      const actualQuizHistory = quizHistory.filter(
+        (h) => !h.questionId.startsWith('stage-') && !h.questionId.startsWith('chapter-')
+      );
+      const actualCorrect = actualQuizHistory.filter((h) => h.isCorrect).length;
+      const accuracy = actualQuizHistory.length > 0 ? (actualCorrect / actualQuizHistory.length) * 100 : 0;
       currentValue = Math.round(accuracy);
-      isUnlocked = quizHistory.length >= 3 && accuracy >= 80;
+      isUnlocked = actualQuizHistory.length >= 3 && accuracy >= 80;
       break;
     }
 
     case 'badge-match-master': {
-      // Check if any match_pairs question was answered correctly
-      const solvedPairs = quizHistory.some((h) => {
-        const q = sections.flatMap((s) => s.chapters).flatMap((c) => c.questions).find((q) => q.id === h.questionId);
+      // Check if any match_pairs question was answered correctly in standalone quiz
+      const actualQuizHistory = quizHistory.filter(
+        (h) => !h.questionId.startsWith('stage-') && !h.questionId.startsWith('chapter-')
+      );
+      const solvedPairs = actualQuizHistory.some((h) => {
+        const q = (sections || [])
+          .flatMap((s) => s.chapters || [])
+          .flatMap((c) => c.questions || [])
+          .find((q) => q.id === h.questionId);
         return q?.type === 'match_pairs' && h.isCorrect;
       });
       currentValue = solvedPairs ? 1 : 0;
@@ -290,7 +311,12 @@ export function evaluateBadgeProgress(
     }
 
     case 'badge-speed-demon': {
-      const fastCorrect = quizHistory.some((h) => h.isCorrect && (h.timeSpentSeconds || 15) <= 10);
+      const actualQuizHistory = quizHistory.filter(
+        (h) => !h.questionId.startsWith('stage-') && !h.questionId.startsWith('chapter-')
+      );
+      const fastCorrect = actualQuizHistory.some(
+        (h) => h.isCorrect && (h.timeSpentSeconds || 15) <= 10
+      );
       currentValue = fastCorrect ? 1 : 0;
       isUnlocked = fastCorrect;
       break;
@@ -312,10 +338,10 @@ export function evaluateBadgeProgress(
     }
 
     case 'badge-diamond-champ': {
-      // Calculate XP from completed chapters & quiz
-      const totalXp = (progress.completedChapters.length * 20) + (correctCount * 15);
-      currentValue = totalXp;
-      isUnlocked = totalXp >= targetValue;
+      // Calculate authoritative XP from completed stages, standalone quizzes, chapters, Pomodoro sessions, and claimed badges
+      const computedXp = calculateAuthoritativeUserXp(progress);
+      currentValue = computedXp;
+      isUnlocked = computedXp >= targetValue;
       break;
     }
 
@@ -357,20 +383,62 @@ export function getAllBadgeProgress(
 }
 
 /**
- * Checks for any newly unlocked badges that were not previously unlocked
+ * Checks for any newly unlocked badges that were not previously unlocked.
+ * Runs a bounded multi-pass fixed-point evaluation so if unlocking one badge
+ * awards enough XP to cross another badge's threshold (e.g. badge-diamond-champ),
+ * dependent badges unlock deterministically in the same evaluation.
  */
 export function findNewlyUnlockedBadges(
   prevUnlockedIds: string[],
   currentProgress: UserProgress,
-  sections: Section[]
+  sections: Section[],
+  options?: { excludeCategories?: string[] }
 ): BadgeDefinition[] {
-  const currentBadges = getAllBadgeProgress(currentProgress, sections);
+  const excludedCategories = new Set(options?.excludeCategories || []);
+  const knownUnlocked = new Set<string>([
+    ...(prevUnlockedIds || []),
+    ...(currentProgress.unlockedBadgeIds || []),
+  ]);
+  const workingClaimed = new Set<string>(currentProgress.claimedBadgeIds || []);
   const newlyUnlocked: BadgeDefinition[] = [];
 
-  for (const b of currentBadges) {
-    if (b.isUnlocked && !prevUnlockedIds.includes(b.badge.id)) {
-      newlyUnlocked.push(b.badge);
+  let workingProgress: UserProgress = {
+    ...currentProgress,
+    unlockedBadgeIds: Array.from(knownUnlocked),
+    claimedBadgeIds: Array.from(workingClaimed),
+  };
+  workingProgress = {
+    ...workingProgress,
+    totalXp: calculateAuthoritativeUserXp(workingProgress),
+  };
+
+  for (let pass = 0; pass < BADGE_DEFINITIONS.length; pass++) {
+    const currentBadges = getAllBadgeProgress(workingProgress, sections);
+    const unlockedThisPass: BadgeDefinition[] = [];
+
+    for (const b of currentBadges) {
+      if (excludedCategories.has(b.badge.category)) continue;
+      if (b.isUnlocked && !knownUnlocked.has(b.badge.id)) {
+        knownUnlocked.add(b.badge.id);
+        workingClaimed.add(b.badge.id);
+        unlockedThisPass.push(b.badge);
+        newlyUnlocked.push(b.badge);
+      }
     }
+
+    if (unlockedThisPass.length === 0) {
+      break;
+    }
+
+    workingProgress = {
+      ...workingProgress,
+      unlockedBadgeIds: Array.from(knownUnlocked),
+      claimedBadgeIds: Array.from(workingClaimed),
+    };
+    workingProgress = {
+      ...workingProgress,
+      totalXp: calculateAuthoritativeUserXp(workingProgress),
+    };
   }
 
   return newlyUnlocked;

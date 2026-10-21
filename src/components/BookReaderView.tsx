@@ -44,6 +44,50 @@ interface BookReaderViewProps {
   onUpdateSettings?: (newSettings: Partial<UserProgress['customSettings']>) => void;
 }
 
+export type ReaderFontSize = 'sm' | 'md' | 'lg' | 'xl';
+
+export const READER_FONT_SIZE_ORDER: ReaderFontSize[] = ['sm', 'md', 'lg', 'xl'];
+
+export function normalizeReaderFontSize(raw?: string | null): ReaderFontSize {
+  if (raw === 'sm') return 'sm';
+  if (raw === 'lg') return 'lg';
+  if (raw === 'xl') return 'xl';
+  return 'md';
+}
+
+export function stepReaderFontSize(
+  current: string | null | undefined,
+  direction: 'increase' | 'decrease'
+): ReaderFontSize {
+  const normalized = normalizeReaderFontSize(current);
+  const idx = READER_FONT_SIZE_ORDER.indexOf(normalized);
+  if (direction === 'increase') {
+    return READER_FONT_SIZE_ORDER[Math.min(READER_FONT_SIZE_ORDER.length - 1, idx + 1)];
+  }
+  return READER_FONT_SIZE_ORDER[Math.max(0, idx - 1)];
+}
+
+export function resolveReaderFontSizeSpec(raw?: string | null): {
+  size: ReaderFontSize;
+  remSize: string;
+  pxValue: number;
+  lineHeight: number;
+  tailwindClass: string;
+} {
+  const size = normalizeReaderFontSize(raw);
+  switch (size) {
+    case 'sm':
+      return { size: 'sm', remSize: '0.875rem', pxValue: 14, lineHeight: 1.95, tailwindClass: 'text-sm leading-relaxed' };
+    case 'lg':
+      return { size: 'lg', remSize: '1.225rem', pxValue: 19.6, lineHeight: 2.25, tailwindClass: 'text-lg leading-loose' };
+    case 'xl':
+      return { size: 'xl', remSize: '1.425rem', pxValue: 22.8, lineHeight: 2.35, tailwindClass: 'text-xl leading-loose' };
+    case 'md':
+    default:
+      return { size: 'md', remSize: '1.025rem', pxValue: 16.4, lineHeight: 2.15, tailwindClass: 'text-base leading-loose' };
+  }
+}
+
 export const BookReaderView: React.FC<BookReaderViewProps> = ({
   sections,
   currentChapter,
@@ -56,10 +100,23 @@ export const BookReaderView: React.FC<BookReaderViewProps> = ({
   onMarkCompleted,
   onAskMentorAboutChapter,
   onOpenPomodoro,
+  onUpdateSettings,
 }) => {
   const [readingMode, setReadingMode] = useState<'academic' | 'simplified'>('academic');
-  const [fontSize, setFontSize] = useState<'sm' | 'base' | 'lg'>('base');
+  const [fontSize, setFontSize] = useState<ReaderFontSize>(() =>
+    normalizeReaderFontSize(progress.customSettings?.fontSize)
+  );
   const [activeSubtopicIndex, setActiveSubtopicIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    const synced = normalizeReaderFontSize(progress.customSettings?.fontSize);
+    setFontSize(synced);
+  }, [progress.customSettings?.fontSize]);
+
+  const applyReaderFontSize = (nextSize: ReaderFontSize) => {
+    setFontSize(nextSize);
+    onUpdateSettings?.({ fontSize: nextSize });
+  };
 
   // Sidebar for table of contents
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
@@ -354,14 +411,37 @@ export const BookReaderView: React.FC<BookReaderViewProps> = ({
 
             {/* Reader Utilities: Font Size, Audio TTS, Notes, Bookmark, Pin */}
             <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
-              {/* Font Size Adjuster */}
-              <div className="flex items-center bg-[#F7F5F0] p-1 rounded-xl border border-[#E5E1EB] text-xs font-extrabold">
+              {/* Font Size Adjuster (A- / Presets / A+) */}
+              <div
+                className="flex items-center bg-[#F7F5F0] p-1 rounded-xl border border-[#E5E1EB] text-xs font-extrabold"
+                role="group"
+                aria-label="تنظیم اندازه متن مطالعه"
+              >
                 <button
+                  type="button"
                   onClick={() => {
                     playDuoSound('click');
-                    setFontSize('sm');
+                    applyReaderFontSize(stepReaderFontSize(fontSize, 'decrease'));
                   }}
-                  className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer min-h-[44px] ${
+                  disabled={fontSize === 'sm'}
+                  aria-label="کوچک‌تر کردن متن (A−)"
+                  title="کوچک‌تر کردن اندازه متن (A−)"
+                  className={`px-2.5 py-1.5 rounded-lg transition-all min-h-[44px] font-black ${
+                    fontSize === 'sm'
+                      ? 'text-[#69697E]/40 cursor-not-allowed'
+                      : 'text-[#24243B] hover:bg-white cursor-pointer'
+                  }`}
+                >
+                  A−
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    playDuoSound('click');
+                    applyReaderFontSize('sm');
+                  }}
+                  aria-pressed={fontSize === 'sm'}
+                  className={`px-2.5 py-1.5 rounded-lg transition-all cursor-pointer min-h-[44px] ${
                     fontSize === 'sm' ? 'bg-white text-[#24243B] shadow-2xs' : 'text-[#69697E] hover:text-[#24243B]'
                   }`}
                   title="اندازه متن کوچک"
@@ -369,28 +449,63 @@ export const BookReaderView: React.FC<BookReaderViewProps> = ({
                   کوچک
                 </button>
                 <button
+                  type="button"
                   onClick={() => {
                     playDuoSound('click');
-                    setFontSize('base');
+                    applyReaderFontSize('md');
                   }}
-                  className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer min-h-[44px] ${
-                    fontSize === 'base' ? 'bg-white text-[#24243B] shadow-2xs' : 'text-[#69697E] hover:text-[#24243B]'
+                  aria-pressed={fontSize === 'md'}
+                  className={`px-2.5 py-1.5 rounded-lg transition-all cursor-pointer min-h-[44px] ${
+                    fontSize === 'md' ? 'bg-white text-[#24243B] shadow-2xs' : 'text-[#69697E] hover:text-[#24243B]'
                   }`}
                   title="اندازه متن استاندارد"
                 >
                   متوسط
                 </button>
                 <button
+                  type="button"
                   onClick={() => {
                     playDuoSound('click');
-                    setFontSize('lg');
+                    applyReaderFontSize('lg');
                   }}
-                  className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer min-h-[44px] ${
+                  aria-pressed={fontSize === 'lg'}
+                  className={`px-2.5 py-1.5 rounded-lg transition-all cursor-pointer min-h-[44px] ${
                     fontSize === 'lg' ? 'bg-white text-[#24243B] shadow-2xs' : 'text-[#69697E] hover:text-[#24243B]'
                   }`}
                   title="اندازه متن بزرگ"
                 >
                   بزرگ
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    playDuoSound('click');
+                    applyReaderFontSize('xl');
+                  }}
+                  aria-pressed={fontSize === 'xl'}
+                  className={`px-2.5 py-1.5 rounded-lg transition-all cursor-pointer min-h-[44px] ${
+                    fontSize === 'xl' ? 'bg-white text-[#24243B] shadow-2xs' : 'text-[#69697E] hover:text-[#24243B]'
+                  }`}
+                  title="اندازه متن بسیار بزرگ"
+                >
+                  بسیار بزرگ
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    playDuoSound('click');
+                    applyReaderFontSize(stepReaderFontSize(fontSize, 'increase'));
+                  }}
+                  disabled={fontSize === 'xl'}
+                  aria-label="بزرگ‌تر کردن متن (A+)"
+                  title="بزرگ‌تر کردن اندازه متن (A+)"
+                  className={`px-2.5 py-1.5 rounded-lg transition-all min-h-[44px] font-black ${
+                    fontSize === 'xl'
+                      ? 'text-[#69697E]/40 cursor-not-allowed'
+                      : 'text-[#5B46E8] hover:bg-white cursor-pointer'
+                  }`}
+                >
+                  A+
                 </button>
               </div>
 
@@ -547,12 +662,9 @@ export const BookReaderView: React.FC<BookReaderViewProps> = ({
             )}
 
             <div
+              data-reader-font-size={fontSize}
               className={`prose-persian max-w-[68ch] space-y-4 text-[#24243B] ${
-                fontSize === 'sm'
-                  ? 'text-xs sm:text-sm leading-relaxed'
-                  : fontSize === 'lg'
-                  ? 'text-base sm:text-lg leading-loose'
-                  : 'text-sm sm:text-base leading-loose'
+                resolveReaderFontSizeSpec(fontSize).tailwindClass
               }`}
             >
               {currentDisplayContent.split('\n\n').map((paragraph, pIdx) => (

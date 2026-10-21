@@ -1,19 +1,24 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
-import { WifiOff, RotateCcw, AlertTriangle } from 'lucide-react';
+import { WifiOff, RotateCcw, AlertTriangle, Home } from 'lucide-react';
 
 interface OfflineSafeErrorBoundaryProps {
   children: ReactNode;
   fallbackTitle?: string;
+  resetKey?: string | number;
+  onRetry?: () => void;
+  onNavigateHome?: () => void;
 }
 
 interface OfflineSafeErrorBoundaryState {
   hasError: boolean;
   errorMessage: string;
+  retryEpoch: number;
 }
 
 /**
  * Catches dynamic chunk import failures or render errors (especially when switching views offline)
  * and renders a clean Persian retry card instead of a blank screen.
+ * Automatically resets error state when the user navigates to another destination (`resetKey` changes).
  */
 export class OfflineSafeErrorBoundary extends Component<
   OfflineSafeErrorBoundaryProps,
@@ -24,14 +29,24 @@ export class OfflineSafeErrorBoundary extends Component<
     this.state = {
       hasError: false,
       errorMessage: '',
+      retryEpoch: 0,
     };
   }
 
-  static getDerivedStateFromError(error: Error): OfflineSafeErrorBoundaryState {
+  static getDerivedStateFromError(error: Error): Partial<OfflineSafeErrorBoundaryState> {
     return {
       hasError: true,
       errorMessage: error?.message || 'خطا در بارگذاری بخش مورد نظر',
     };
+  }
+
+  componentDidUpdate(prevProps: OfflineSafeErrorBoundaryProps) {
+    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({
+        hasError: false,
+        errorMessage: '',
+      });
+    }
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
@@ -39,7 +54,20 @@ export class OfflineSafeErrorBoundary extends Component<
   }
 
   handleRetry = () => {
-    this.setState({ hasError: false, errorMessage: '' });
+    this.props.onRetry?.();
+    this.setState((prev) => ({
+      hasError: false,
+      errorMessage: '',
+      retryEpoch: prev.retryEpoch + 1,
+    }));
+  };
+
+  handleGoHome = () => {
+    this.setState({
+      hasError: false,
+      errorMessage: '',
+    });
+    this.props.onNavigateHome?.();
   };
 
   render() {
@@ -79,7 +107,17 @@ export class OfflineSafeErrorBoundary extends Component<
             </div>
           </div>
 
-          <div className="flex items-center justify-end gap-2.5 pt-1">
+          <div className="flex flex-wrap items-center justify-end gap-2.5 pt-1">
+            {this.props.onNavigateHome && (
+              <button
+                type="button"
+                onClick={this.handleGoHome}
+                className="px-4 py-2.5 rounded-xl border border-[#CFC9DA] bg-[#F7F5F0] hover:bg-white text-[#24243B] text-xs font-black flex items-center gap-1.5 cursor-pointer transition-colors"
+              >
+                <Home className="w-4 h-4 text-[#7056D8]" />
+                <span>بازگشت به خانه</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={this.handleRetry}
@@ -93,6 +131,6 @@ export class OfflineSafeErrorBoundary extends Component<
       );
     }
 
-    return this.props.children;
+    return <React.Fragment key={this.state.retryEpoch}>{this.props.children}</React.Fragment>;
   }
 }

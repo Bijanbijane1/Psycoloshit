@@ -267,7 +267,8 @@ export class StageExecutionStateManager {
   }
 
   /**
-   * Validates whether a stage's prerequisites are met
+   * Validates whether a stage's prerequisites are met.
+   * Every stage > 1 requires all preceding stages (1 .. stageNumber - 1) to be completed.
    */
   public isStagePrerequisiteMet(
     stageNumber: number,
@@ -277,16 +278,15 @@ export class StageExecutionStateManager {
       return { isMet: true };
     }
 
-    // Direct sequential chained requirement
-    const requiredPrevStage = stageNumber - 1;
-    const isCompleted = !!completedStages && !!completedStages[requiredPrevStage];
-
-    if (!isCompleted) {
-      return {
-        isMet: false,
-        missingStageNumber: requiredPrevStage,
-        reason: `پیش‌نیاز مرحله ${stageNumber}، اتمام موفقیت‌آمیز مرحله ${requiredPrevStage} است.`,
-      };
+    for (let reqStage = 1; reqStage < stageNumber; reqStage++) {
+      const isCompleted = !!completedStages && !!completedStages[reqStage];
+      if (!isCompleted) {
+        return {
+          isMet: false,
+          missingStageNumber: reqStage,
+          reason: `پیش‌نیاز مرحله ${stageNumber}، اتمام موفقیت‌آمیز مرحله ${reqStage} است.`,
+        };
+      }
     }
 
     return { isMet: true };

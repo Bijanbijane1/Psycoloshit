@@ -1106,25 +1106,47 @@ app.post('/api/leaderboard/submit', async (req, res) => {
     }
 
     const verifiedCompletedStages = userSyncManager.getVerifiedCompletedStageNumbers(targetUserId);
-    const verification = verifyRewardSubmission(body, { verifiedCompletedStages });
+    const verifiedQuizKeys =
+      (typeof body.rewardType === 'string' && body.rewardType.trim() === 'badge_unlock') ||
+      (typeof body.reason === 'string' && body.reason.trim() === 'badge_unlock')
+        ? userSyncManager.getVerifiedQuizIdempotencyKeys(targetUserId)
+        : undefined;
+    const verification = verifyRewardSubmission(body, {
+      verifiedCompletedStages,
+      verifiedQuizKeys,
+      userProfile: {
+        xp: existingUser.xp,
+        streakDays: existingUser.streakDays,
+        completedChapters: existingUser.completedChapters,
+        unlockedBadgeIds: existingUser.unlockedBadgeIds,
+      },
+    });
     if (!verification.ok) {
       return res.status(verification.status).json({ error: verification.error });
     }
 
+    const priorXp = existingUser.xp || 0;
     const updated = userSyncManager.awardXp({
       userId: targetUserId,
       xpEarned: verification.amount,
       reason: verification.reason,
       stageRecord: verification.stageRecord,
+      chapterId: verification.chapterId,
+      badgeId: verification.badgeId,
+      pomodoroMinutes: verification.pomodoroMinutes,
       streakDays: typeof body.streakDays === 'number' ? body.streakDays : undefined,
       name: typeof body.name === 'string' ? body.name : undefined,
       avatar: typeof body.avatar === 'string' ? body.avatar : undefined,
       idempotencyKey: verification.idempotencyKey,
     });
+    const applied = updated.xp > priorXp;
 
     return res.json({
       success: true,
-      awardedXp: verification.amount,
+      applied,
+      alreadyProcessed: !applied,
+      alreadyClaimed: !applied,
+      awardedXp: applied ? verification.amount : 0,
       updatedXp: updated.xp,
       profile: updated,
     });

@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { DuoMascot } from './DuoMascot';
 import { playDuoSound } from '../utils/duoAudio';
+import { calculateCanonicalPomodoroXp } from '../utils/storage';
 import confetti from 'canvas-confetti';
 
 interface PomodoroTimerModalProps {
@@ -26,15 +27,15 @@ interface PomodoroTimerModalProps {
   onClose: () => void;
   chapter: Chapter;
   progress: UserProgress;
-  onLogStudyTime: (chapterId: string, seconds: number, xpBonus: number) => void;
+  onLogStudyTime: (chapterId: string, seconds: number, xpBonus: number, sessionId?: string) => void;
 }
 
 const PRESET_GOALS = [
-  { label: '۱۵ دقیقه (سریع)', minutes: 15, xp: 20 },
-  { label: '۲۵ دقیقه (استاندارد)', minutes: 25, xp: 35 },
-  { label: '۳۵ دقیقه (عمیق)', minutes: 35, xp: 50 },
-  { label: '۴۵ دقیقه (پیشرفته)', minutes: 45, xp: 65 },
-  { label: '۵ دقیقه (استراحت)', minutes: 5, xp: 5, isBreak: true },
+  { label: '۱۵ دقیقه (سریع)', minutes: 15, xp: calculateCanonicalPomodoroXp(15) },
+  { label: '۲۵ دقیقه (استاندارد)', minutes: 25, xp: calculateCanonicalPomodoroXp(25) },
+  { label: '۳۵ دقیقه (عمیق)', minutes: 35, xp: calculateCanonicalPomodoroXp(35) },
+  { label: '۴۵ دقیقه (پیشرفته)', minutes: 45, xp: calculateCanonicalPomodoroXp(45) },
+  { label: '۵ دقیقه (استراحت)', minutes: 5, xp: 0, isBreak: true },
 ];
 
 export const PomodoroTimerModal: React.FC<PomodoroTimerModalProps> = ({
@@ -50,10 +51,14 @@ export const PomodoroTimerModal: React.FC<PomodoroTimerModalProps> = ({
   const [isMinimized, setIsMinimized] = useState<boolean>(false);
   const [mode, setMode] = useState<'focus' | 'break'>('focus');
   const [isCompletedSession, setIsCompletedSession] = useState<boolean>(false);
-  const [earnedXp, setEarnedXp] = useState<number>(35);
+  const [earnedXp, setEarnedXp] = useState<number>(calculateCanonicalPomodoroXp(25));
   const [sessionElapsedSeconds, setSessionElapsedSeconds] = useState<number>(0);
 
   const initialTotalSecondsRef = useRef<number>(25 * 60);
+  const activeSessionIdRef = useRef<string>(
+    `pomo_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`
+  );
+  const hasLoggedCurrentSessionRef = useRef<boolean>(false);
 
   // Total previously logged seconds for this specific chapter
   const existingChapterSeconds = progress.chapterStudyTime?.[chapter.id] || 0;
@@ -99,15 +104,16 @@ export const PomodoroTimerModal: React.FC<PomodoroTimerModalProps> = ({
       colors: ['#58CC02', '#FFC800', '#1CB0F6', '#FF9600'],
     });
 
-    const targetXp = mode === 'focus' ? Math.round(selectedGoalMinutes * 1.4) : 5;
+    const targetXp = mode === 'focus' ? calculateCanonicalPomodoroXp(selectedGoalMinutes) : 0;
     setEarnedXp(targetXp);
     setIsCompletedSession(true);
     setIsMinimized(false);
 
-    // Track focused reading time per chapter
-    if (mode === 'focus') {
+    // Track focused reading time per chapter exactly once per completed focus run
+    if (mode === 'focus' && !hasLoggedCurrentSessionRef.current) {
+      hasLoggedCurrentSessionRef.current = true;
       const loggedSeconds = initialTotalSecondsRef.current;
-      onLogStudyTime(chapter.id, loggedSeconds, targetXp);
+      onLogStudyTime(chapter.id, loggedSeconds, targetXp, activeSessionIdRef.current);
     }
 
     // Trigger OS notification if allowed
@@ -131,6 +137,8 @@ export const PomodoroTimerModal: React.FC<PomodoroTimerModalProps> = ({
     setSelectedGoalMinutes(minutes);
     const secs = minutes * 60;
     initialTotalSecondsRef.current = secs;
+    activeSessionIdRef.current = `pomo_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    hasLoggedCurrentSessionRef.current = false;
     setTimeLeftSeconds(secs);
     setIsRunning(false);
     setSessionElapsedSeconds(0);
@@ -146,6 +154,8 @@ export const PomodoroTimerModal: React.FC<PomodoroTimerModalProps> = ({
   const handleReset = () => {
     playDuoSound('click');
     setIsRunning(false);
+    activeSessionIdRef.current = `pomo_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    hasLoggedCurrentSessionRef.current = false;
     setTimeLeftSeconds(initialTotalSecondsRef.current);
     setSessionElapsedSeconds(0);
     setIsCompletedSession(false);
@@ -156,11 +166,15 @@ export const PomodoroTimerModal: React.FC<PomodoroTimerModalProps> = ({
       onClose();
       return;
     }
-    playDuoSound('complete');
-    const xp = Math.max(10, Math.round((sessionElapsedSeconds / 60) * 1.2));
-    onLogStudyTime(chapter.id, sessionElapsedSeconds, xp);
-    setEarnedXp(xp);
-    setIsCompletedSession(true);
+    if (mode === 'focus' && !hasLoggedCurrentSessionRef.current) {
+      hasLoggedCurrentSessionRef.current = true;
+      playDuoSound('complete');
+      const elapsedMinutes = Math.max(1, Math.min(60, Math.round(sessionElapsedSeconds / 60)));
+      const xp = calculateCanonicalPomodoroXp(elapsedMinutes);
+      onLogStudyTime(chapter.id, sessionElapsedSeconds, xp, activeSessionIdRef.current);
+      setEarnedXp(xp);
+      setIsCompletedSession(true);
+    }
     setIsRunning(false);
   };
 

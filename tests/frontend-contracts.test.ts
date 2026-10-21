@@ -1978,12 +1978,1567 @@ async function runPhase7FrontendContractTests() {
       }
     }
 
+    // ============================================================================
+    // 🔹 Suite 11: Phase 10C.2A Reward Consistency, Persistence & Stage 100 Chest
+    // ============================================================================
+    console.log('🔹 Suite 11: Phase 10C.2A Reward Consistency, Persistence & Stage 100 Chest');
+
+    async function createGuestSession(userId: string): Promise<string> {
+      const syncRes = await worker.fetch(
+        new Request('http://localhost/api/user/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Origin: 'http://localhost' },
+          body: JSON.stringify({ userId, name: 'کاربر تست' }),
+        }),
+        env,
+        ctx
+      );
+      const syncData = await syncRes.json();
+      return syncData.guestToken;
+    }
+
+    // 11.1 Standalone quiz XP agreement across persisted balance and leaderboard
+    const quizUserToken = await createGuestSession('usr_quiz_test');
+    const quizUserXpRes1 = await worker.fetch(
+      new Request('http://localhost/api/leaderboard?userId=usr_quiz_test', {
+        method: 'GET',
+        headers: { Origin: 'http://localhost', 'X-Guest-Token': quizUserToken },
+      }),
+      env,
+      ctx
+    );
+    assertEqual(quizUserXpRes1.status, 200, 'GET leaderboard for quiz user should succeed');
+    const quizUserLeaderboard1 = await quizUserXpRes1.json();
+    const initRankEntry1 = quizUserLeaderboard1.leaderboard.find((e: any) => e.isCurrentUser);
+    assert(Boolean(initRankEntry1), 'Current user entry must be identified when valid guest session provided');
+    const initialUserXp = initRankEntry1.xp;
+
+    // Submit a valid standalone quiz answer (+15 XP)
+    const quizSubmitRes = await worker.fetch(
+      new Request('http://localhost/api/leaderboard/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost', 'X-Guest-Token': quizUserToken },
+        body: JSON.stringify({
+          userId: 'usr_quiz_test',
+          rewardType: 'quiz_answer',
+          chapterId: 'ch-1',
+          questionId: 'q-1-1',
+          userAnswer: 1,
+          isCorrect: true,
+          streakDays: 1,
+        }),
+      }),
+      env,
+      ctx
+    );
+    assertEqual(quizSubmitRes.status, 200, 'Submitting quiz answer must succeed');
+    const quizSubmitData = await quizSubmitRes.json();
+    assertEqual(quizSubmitData.applied, true, 'First submission must be applied');
+    assertEqual(quizSubmitData.updatedXp, initialUserXp + 10, 'Updated XP must reflect exact +10 XP credit');
+
+    // Fetch leaderboard again and assert agreement
+    const quizUserXpRes2 = await worker.fetch(
+      new Request('http://localhost/api/leaderboard?userId=usr_quiz_test', {
+        method: 'GET',
+        headers: { Origin: 'http://localhost', 'X-Guest-Token': quizUserToken },
+      }),
+      env,
+      ctx
+    );
+    const quizUserLeaderboard2 = await quizUserXpRes2.json();
+    const updatedRankEntry = quizUserLeaderboard2.leaderboard.find((e: any) => e.isCurrentUser);
+    assertEqual(updatedRankEntry.xp, initialUserXp + 10, 'Leaderboard XP must match updated user balance');
+
+    // 11.2 Replay reward eligibility, displayed value, actual credit, and duplicate prevention
+    const retryQuizSubmitRes = await worker.fetch(
+      new Request('http://localhost/api/leaderboard/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost', 'X-Guest-Token': quizUserToken },
+        body: JSON.stringify({
+          userId: 'usr_quiz_test',
+          rewardType: 'quiz_answer',
+          chapterId: 'ch-1',
+          questionId: 'q-1-1',
+          userAnswer: 1,
+          isCorrect: true,
+          streakDays: 1,
+        }),
+      }),
+      env,
+      ctx
+    );
+    assertEqual(retryQuizSubmitRes.status, 200, 'Duplicate submission must return 200 OK');
+    const retryData = await retryQuizSubmitRes.json();
+    assertEqual(retryData.alreadyClaimed, true, 'Retry must be marked as already claimed');
+    assertEqual(retryData.applied, false, 'Retry must NOT apply new XP credit');
+    assertEqual(retryData.updatedXp, initialUserXp + 10, 'XP balance must remain unchanged');
+
+    // 11.3 Correct achievement triggers for lesson vs quiz vs chapter events
+    const { evaluateBadgeProgress, BADGE_DEFINITIONS } = await import('../src/data/badgeDefinitions.ts');
+    const firstQuizBadge = BADGE_DEFINITIONS.find((b) => b.id === 'badge-first-quiz')!;
+
+    const { getDefaultUserProgress } = await import('../src/utils/storage.ts');
+    const chapterDoneOnlyProgress = {
+      ...getDefaultUserProgress(),
+      completedChapters: ['ch-1'],
+      quizHistory: [{
+        chapterId: 'stage_1',
+        questionId: 'stage-1',
+        isCorrect: true,
+        userAnswer: 'passed',
+        timestamp: Date.now(),
+        timeSpentSeconds: 60,
+        difficulty: 'basic' as const,
+      }],
+    };
+    const chapterBadgeEval = evaluateBadgeProgress(firstQuizBadge, chapterDoneOnlyProgress, []);
+    assertEqual(chapterBadgeEval.isUnlocked, false, 'Textbook chapter completion must NOT unlock First Quiz Spark badge');
+
+    const realQuizProgress = {
+      ...chapterDoneOnlyProgress,
+      quizHistory: [{
+        chapterId: 'ch-1',
+        questionId: 'q-1-1',
+        isCorrect: true,
+        userAnswer: 1,
+        timestamp: Date.now(),
+        timeSpentSeconds: 15,
+        difficulty: 'basic' as const,
+      }],
+    };
+    const realQuizBadgeEval = evaluateBadgeProgress(firstQuizBadge, realQuizProgress, []);
+    assertEqual(realQuizBadgeEval.isUnlocked, true, 'Answering actual quiz question MUST unlock First Quiz Spark badge');
+
+    // 11.4 First-lesson achievement reward semantics (+50 XP for First Quiz Spark)
+    const badgeUnlockRes = await worker.fetch(
+      new Request('http://localhost/api/leaderboard/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost', 'X-Guest-Token': quizUserToken },
+        body: JSON.stringify({
+          userId: 'usr_quiz_test',
+          rewardType: 'badge_unlock',
+          badgeId: 'badge-first-quiz',
+          streakDays: 1,
+        }),
+      }),
+      env,
+      ctx
+    );
+    assertEqual(badgeUnlockRes.status, 200, 'Submitting badge_unlock must succeed');
+    const badgeUnlockData = await badgeUnlockRes.json();
+    assertEqual(badgeUnlockData.applied, true, 'Badge unlock reward must be applied');
+    assertEqual(badgeUnlockData.updatedXp, initialUserXp + 10 + 50, 'XP balance must credit advertised +50 XP badge reward');
+
+    // 11.5 Stage 100 claim rejection when prerequisites are unmet
+    const { stageExecutionEngine } = await import('../src/services/stageExecutionEngine.ts');
+    const emptyStagesProgress = { ...getDefaultUserProgress(), completedStages: {} };
+    const stage100Prereq = stageExecutionEngine.isStagePrerequisiteMet(100, emptyStagesProgress.completedStages);
+    assertEqual(stage100Prereq.isMet, false, 'Stage 100 prerequisites must NOT be met when prior stages are incomplete');
+    assertEqual(stage100Prereq.missingStageNumber, 1, 'Missing stage number must be stage 1 when no stages are completed');
+
+    // 11.6 Exactly-once +150 diamond credit for an eligible chest claim & persistence after reload
+    const allStagesDoneMap: Record<number, any> = {};
+    for (let i = 1; i <= 100; i++) {
+      allStagesDoneMap[i] = {
+        stageNumber: i,
+        completedAt: new Date().toISOString(),
+        stars: 3,
+        score: 5,
+        totalQuestions: 5,
+        xpEarned: 50,
+        verified: true,
+        source: 'online-verified',
+      };
+    }
+    const eligible100Progress = {
+      ...getDefaultUserProgress(),
+      diamonds: 480,
+      claimedStageChests: [],
+      completedStages: allStagesDoneMap,
+    };
+    const stage100EligiblePrereq = stageExecutionEngine.isStagePrerequisiteMet(100, eligible100Progress.completedStages);
+    assertEqual(stage100EligiblePrereq.isMet, true, 'Stage 100 prerequisites MUST be met when stages 1-99 are completed');
+
+    const {
+      saveUserProgress,
+      loadUserProgress,
+      calculateAuthoritativeUserXp,
+      recordDailyXpActivity,
+      applyStandaloneQuizAnswerToProgress,
+      applyStageCompletionToProgress,
+      claimStageChestReward,
+      recordPomodoroSessionCompletion,
+    } = await import('../src/utils/storage.ts');
+
+    const chestClaimRes1 = claimStageChestReward(eligible100Progress, 100);
+    assertEqual(chestClaimRes1.claimed, true, 'Eligible stage 100 chest claim must apply');
+    assertEqual(chestClaimRes1.diamondsAwarded, 150, 'Stage 100 chest must credit exactly 150 diamonds');
+    assertEqual(chestClaimRes1.progress.diamonds, 630, 'Diamond balance must increase from 480 to 630');
+    assert(Boolean(chestClaimRes1.progress.claimedStageChests?.includes(100)), 'Stage 100 chest must be recorded in claimedStageChests');
+
+    // Duplicate claim protection
+    const chestClaimResDuplicate = claimStageChestReward(chestClaimRes1.progress, 100);
+    assertEqual(chestClaimResDuplicate.claimed, false, 'Repeated stage 100 chest claim must be rejected');
+    assertEqual(chestClaimResDuplicate.alreadyClaimed, true, 'Repeated stage 100 chest claim must set alreadyClaimed = true');
+    assertEqual(chestClaimResDuplicate.diamondsAwarded, 0, 'Duplicate chest claim must credit 0 diamonds');
+    assertEqual(chestClaimResDuplicate.progress.diamonds, 630, 'Diamond balance must remain 630 after duplicate claim attempt');
+
+    saveUserProgress(chestClaimRes1.progress, 'usr_chest_test');
+    const reloadedChestProgress = loadUserProgress('usr_chest_test');
+    assertEqual(reloadedChestProgress.diamonds, 630, 'Reloaded diamond balance must remain 630');
+    assert(Boolean(reloadedChestProgress.claimedStageChests?.includes(100)), 'Reloaded claimedStageChests must include stage 100');
+
+    // 11.7 Exactly-once Pomodoro completion persistence and total study time after reload
+    const pomoBaseProgress = {
+      ...getDefaultUserProgress(),
+      totalStudyMinutes: 45,
+      pomodoroHistory: [],
+    };
+    const pomoRes1 = recordPomodoroSessionCompletion(pomoBaseProgress, {
+      sessionId: 'pomo_test_1',
+      chapterId: 'ch-1',
+      seconds: 25 * 60,
+    });
+    assertEqual(pomoRes1.applied, true, '25-min Pomodoro session must be recorded');
+    assertEqual(pomoRes1.progress.totalStudyMinutes, 70, 'Total study time must increase from 45 to 70 after 25min Pomodoro');
+
+    // Duplicate session ID must not double-count
+    const pomoResDuplicate = recordPomodoroSessionCompletion(pomoRes1.progress, {
+      sessionId: 'pomo_test_1',
+      chapterId: 'ch-1',
+      seconds: 25 * 60,
+    });
+    assertEqual(pomoResDuplicate.applied, false, 'Duplicate Pomodoro session ID must not be applied again');
+    assertEqual(pomoResDuplicate.progress.totalStudyMinutes, 70, 'Total study time must remain 70 on duplicate Pomodoro submission');
+
+    // Incomplete session (< 60s) must not count
+    const pomoResIncomplete = recordPomodoroSessionCompletion(pomoRes1.progress, {
+      sessionId: 'pomo_incomplete_1',
+      chapterId: 'ch-1',
+      seconds: 30,
+    });
+    assertEqual(pomoResIncomplete.applied, false, 'Incomplete Pomodoro session (< 60s) must not be counted');
+    assertEqual(pomoResIncomplete.progress.totalStudyMinutes, 70, 'Total study time must remain 70 after incomplete session');
+
+    saveUserProgress(pomoRes1.progress, 'usr_pomo_test');
+    const reloadedPomoProgress = loadUserProgress('usr_pomo_test');
+    assertEqual(reloadedPomoProgress.totalStudyMinutes, 70, 'Reloaded study time must remain 70 minutes');
+    assertEqual(reloadedPomoProgress.pomodoroHistory?.length, 1, 'Reloaded pomodoroHistory must contain 1 session');
+
+    console.log('  ✅ Suite 11 Passed!\n');
+
+    // =========================================================================
+    // SUITE 12: Phase 10C.2B Behavioral Verification & 18-Scenario Regression
+    // =========================================================================
+    console.log('📋 Suite 12: Phase 10C.2B Behavioral Verification & 18-Scenario Regression...');
+
+    const readSrcFile = (relPath: string) =>
+      fs.readFileSync(path.resolve(process.cwd(), 'src', relPath), 'utf-8');
+
+    // --- Defect 2A: Sound-setting synchronization ---
+    const {
+      getAudioMuted,
+      isSoundEnabled,
+      setAudioMuted,
+      setSoundEnabled,
+      playDuoSound,
+      getAudioPlaybackStats,
+      resetAudioPlaybackStats,
+    } = await import('../src/utils/duoAudio.ts');
+
+    // Ensure default user progress exists in localStorage before testing sync
+    saveUserProgress(getDefaultUserProgress());
+    resetAudioPlaybackStats();
+    setSoundEnabled(false);
+    assertEqual(isSoundEnabled(), false, '2A: setSoundEnabled(false) must set soundEnabled to false');
+    assertEqual(getAudioMuted(), true, '2A: setSoundEnabled(false) must synchronize header getAudioMuted() to true');
+    const reloadedSoundOffProgress = loadUserProgress();
+    assertEqual(
+      reloadedSoundOffProgress.customSettings.soundEnabled,
+      false,
+      '2A: Muting sound must persist customSettings.soundEnabled = false in storage'
+    );
+    const playedWhileMuted = playDuoSound('correct');
+    assertEqual(playedWhileMuted, false, '2A: playDuoSound must return false and not play when muted');
+    assertEqual(getAudioPlaybackStats().playedSoundCount, 0, '2A: playedSoundCount must remain 0 when muted');
+
+    setAudioMuted(false);
+    assertEqual(getAudioMuted(), false, '2A: setAudioMuted(false) from header control must unmute audio');
+    assertEqual(isSoundEnabled(), true, '2A: setAudioMuted(false) must synchronize Settings isSoundEnabled() to true');
+    const reloadedSoundOnProgress = loadUserProgress();
+    assertEqual(
+      reloadedSoundOnProgress.customSettings.soundEnabled,
+      true,
+      '2A: Unmuting from header must persist customSettings.soundEnabled = true across reloads'
+    );
+
+    // --- Defect 2B: Reader font-size controls ---
+    const {
+      normalizeReaderFontSize,
+      stepReaderFontSize,
+      resolveReaderFontSizeSpec,
+    } = await import('../src/components/BookReaderView.tsx');
+    const cssSource = readSrcFile('index.css');
+    assert(
+      !cssSource.includes('.prose-persian {\n  line-height: 2.05;\n  text-align: justify;\n  font-size: 1.025rem;\n}'),
+      '2B: .prose-persian must not hardcode font-size: 1.025rem overriding reader font-size controls'
+    );
+    assert(
+      cssSource.includes('.prose-persian[data-reader-font-size="lg"]') &&
+        cssSource.includes('.prose-persian[data-reader-font-size="xl"]'),
+      '2B: index.css must define explicit font-size rules for data-reader-font-size sm, md, lg, xl'
+    );
+    const initialReaderSize = normalizeReaderFontSize('md');
+    const enlargedSize1 = stepReaderFontSize(initialReaderSize, 'increase');
+    const enlargedSize2 = stepReaderFontSize(enlargedSize1, 'increase');
+    const reducedSize = stepReaderFontSize(enlargedSize2, 'decrease');
+    assertEqual(enlargedSize1, 'lg', '2B: Clicking A+ from md must step font size to lg');
+    assertEqual(enlargedSize2, 'xl', '2B: Clicking A+ from lg must step font size to xl');
+    assertEqual(reducedSize, 'lg', '2B: Clicking A- from xl must step font size back to lg');
+    assert(
+      resolveReaderFontSizeSpec('xl').pxValue > resolveReaderFontSizeSpec('lg').pxValue &&
+        resolveReaderFontSizeSpec('lg').pxValue > resolveReaderFontSizeSpec('md').pxValue &&
+        resolveReaderFontSizeSpec('md').pxValue > resolveReaderFontSizeSpec('sm').pxValue,
+      '2B: Reader font-size px values must strictly increase sm < md < lg < xl'
+    );
+
+    // --- Defect 2C: Exercise-type filtering ---
+    const {
+      normalizeExerciseFilterType,
+      isGenuineExerciseOfType,
+      filterQuestionsByExerciseType,
+    } = await import('../src/components/QuizCenterView.tsx');
+    const { psychologySections } = await import('../src/data/psychologyCurriculum.ts');
+    const allCurriculumQuestions = psychologySections.flatMap((s) =>
+      s.chapters.flatMap((c) => c.questions)
+    );
+
+    assertEqual(
+      normalizeExerciseFilterType('sentence-ordering'),
+      'sentence_order',
+      '2C: sentence-ordering alias must normalize to sentence_order'
+    );
+    assertEqual(
+      normalizeExerciseFilterType('sentence-arrangement'),
+      'sentence_order',
+      '2C: sentence-arrangement alias must normalize to sentence_order'
+    );
+
+    const sentenceOrderingFiltered = filterQuestionsByExerciseType(
+      allCurriculumQuestions,
+      'sentence-ordering'
+    );
+    assert(
+      sentenceOrderingFiltered.length >= 2,
+      '2C: Filtering by sentence-ordering must return genuine sentence_order exercises'
+    );
+    assert(
+      sentenceOrderingFiltered.every(
+        (q) =>
+          q.type === 'sentence_order' &&
+          Array.isArray(q.sentenceTokens) &&
+          q.sentenceTokens.length >= 2 &&
+          !q.text.includes('SSRI')
+      ),
+      '2C: sentence-ordering filter must NEVER return matching-pairs or unrelated SSRI multiple-choice questions'
+    );
+
+    const sentenceArrangementFiltered = filterQuestionsByExerciseType(
+      allCurriculumQuestions,
+      'sentence-arrangement'
+    );
+    assertEqual(
+      sentenceArrangementFiltered.length,
+      sentenceOrderingFiltered.length,
+      '2C: sentence-arrangement and sentence-ordering must return the exact same genuine sentence_order pool'
+    );
+    assert(
+      sentenceArrangementFiltered.every((q) => isGenuineExerciseOfType(q, 'sentence_order')),
+      '2C: sentence-arrangement must only return genuine sentence_order exercises'
+    );
+
+    const matchingFiltered = filterQuestionsByExerciseType(allCurriculumQuestions, 'matching');
+    assert(
+      matchingFiltered.length > 0 &&
+        matchingFiltered.every((q) => isGenuineExerciseOfType(q, 'match_pairs')),
+      '2C: matching filter must return only genuine matching-pairs exercises'
+    );
+
+    const caseFiltered = filterQuestionsByExerciseType(allCurriculumQuestions, 'case_based');
+    assert(
+      caseFiltered.length > 0 &&
+        caseFiltered.every((q) => isGenuineExerciseOfType(q, 'case_study')),
+      '2C: case_based filter must return only genuine clinical case exercises'
+    );
+
+    const fillBlankFiltered = filterQuestionsByExerciseType(allCurriculumQuestions, 'fill_blank');
+    assert(
+      fillBlankFiltered.length > 0 &&
+        fillBlankFiltered.every((q) => isGenuineExerciseOfType(q, 'fill_blank')),
+      '2C: fill_blank filter must return only genuine fill-in-the-blank exercises'
+    );
+
+    // Empty-pool truthful behavior (no fallback to unrelated exercise types)
+    const emptyPoolResult = filterQuestionsByExerciseType(
+      matchingFiltered,
+      'sentence-ordering'
+    );
+    assertEqual(
+      emptyPoolResult.length,
+      0,
+      '2C: When no exercises match the selected type, filterQuestionsByExerciseType must return [] rather than substituting unrelated exercises'
+    );
+
+    // --- Defect 2D: Persian search normalization ---
+    const {
+      normalizePersianSearchText,
+      matchesNormalizedPersianQuery,
+    } = await import('../src/utils/persianDigits.ts');
+    const { searchCurriculumChapters } = await import('../src/components/AdvancedSearchModal.tsx');
+
+    // Half-space (ZWNJ) vs ordinary space in both directions for "روان‌شناسی" / "روان شناسی" and "معرفت‌شناسی" / "معرفت شناسی"
+    const searchWithSpace = searchCurriculumChapters(psychologySections, 'روان شناسی');
+    const searchWithZwnj = searchCurriculumChapters(psychologySections, 'روان‌شناسی');
+    const searchCompound = searchCurriculumChapters(psychologySections, 'روانشناسی');
+    assert(searchWithSpace.length > 0, '2D: Searching with normal space "روان شناسی" must find lessons');
+    assertEqual(
+      searchWithSpace.map((c) => c.id).join(','),
+      searchWithZwnj.map((c) => c.id).join(','),
+      '2D: Searching with normal space and Persian half-space (ZWNJ) must return identical results'
+    );
+    assert(
+      searchCompound.length >= 8 && searchCompound.some((c) => c.id === 'ch-1'),
+      '2D: Searching compound "روانشناسی" without space must match ZWNJ-indexed lessons'
+    );
+
+    const searchEpistemologySpace = searchCurriculumChapters(
+      psychologySections,
+      'فلسفه علم و مبانی معرفت شناسی در روان شناسی'
+    );
+    assert(
+      searchEpistemologySpace.some((c) => c.id === 'ch-2'),
+      '2D: Searching "فلسفه علم و مبانی معرفت شناسی در روان شناسی" with normal spaces must find ch-2'
+    );
+
+    // Arabic yeh/kaf variants ('روانشناسي و معرفت شناسي')
+    const searchArabicVariants = searchCurriculumChapters(
+      psychologySections,
+      'معرفت شناسي و روانشناسي'
+    );
+    assert(
+      searchArabicVariants.some((c) => c.id === 'ch-2'),
+      '2D: Searching with Arabic Yeh/Kaf variants must find ch-2'
+    );
+
+    // English term search
+    const searchEnglishTerm = searchCurriculumChapters(psychologySections, 'Falsifiability');
+    assert(
+      searchEnglishTerm.some((c) => c.id === 'ch-2'),
+      '2D: Searching English term "Falsifiability" must find ch-2'
+    );
+    assert(
+      matchesNormalizedPersianQuery('روان‌شناسی شناختی', 'روان شناسي شناختي'),
+      '2D: matchesNormalizedPersianQuery must match ZWNJ text against space + Arabic yeh query'
+    );
+    assertEqual(
+      normalizePersianSearchText('روان‌شناسي'),
+      'روان شناسی',
+      '2D: normalizePersianSearchText must unify ZWNJ and Arabic yeh'
+    );
+
+    // --- Defect 2E & 2F: User Panel loading/retry/navigation & Dashboard Achievements entry ---
+    const errorBoundarySource = readSrcFile('components/OfflineSafeErrorBoundary.tsx');
+    assert(
+      errorBoundarySource.includes('resetKey') && errorBoundarySource.includes('بازگشت به خانه'),
+      '2E: OfflineSafeErrorBoundary must reset automatically on navigation (resetKey) and provide a direct Home button'
+    );
+    const userPanelSource = readSrcFile('components/UserPanelView.tsx');
+    assert(
+      userPanelSource.includes('loadExamHistory') && userPanelSource.includes('examHistoryError'),
+      '2E: UserPanelView must isolate exam history errors and provide retry without crashing overview metrics'
+    );
+    const dashboardSource = readSrcFile('components/DashboardView.tsx');
+    assert(
+      dashboardSource.includes('مشاهده همه دستاوردها') && dashboardSource.includes('onOpenBadges'),
+      '2F: DashboardView must wire "مشاهده همه دستاوردها" to onOpenBadges'
+    );
+
+    // --- Reward Audit Item 2 & 3: Daily XP mission progression & persistence ---
+    const missionProg = getDefaultUserProgress();
+    assertEqual(missionProg.dailyXp, 0, 'Daily XP must start at 0 on fresh progress');
+    assertEqual(missionProg.dailyMissionCompleted, false, 'Daily mission must start incomplete');
+
+    // Standalone quiz completion advances daily XP
+    const afterQuiz1 = applyStandaloneQuizAnswerToProgress(missionProg, {
+      chapterId: 'ch-1',
+      questionId: 'q-1-1',
+      isCorrect: true,
+      userAnswer: 1,
+      timeSpentSeconds: 12,
+      difficulty: 'basic',
+    });
+    assertEqual(afterQuiz1.xpAwarded, 10, 'q-1-1 must grant 10 XP');
+    assertEqual(afterQuiz1.progress.dailyXp, 10, 'Standalone quiz must advance dailyXp by 10');
+    assertEqual(afterQuiz1.progress.dailyMissionCompleted, false, 'Daily mission (target 50) must still be incomplete at 10 XP');
+
+    // Stage 1 completion (+25 XP -> 35/50)
+    const afterStage1 = applyStageCompletionToProgress(afterQuiz1.progress, {
+      stageNumber: 1,
+      completedAt: new Date().toISOString(),
+      stars: 3,
+      score: 10,
+      totalQuestions: 10,
+      xpEarned: 25,
+      verified: true,
+      source: 'online-verified',
+    });
+    assertEqual(afterStage1.xpAwarded, 25, 'First completion of Stage 1 must credit 25 XP');
+    assertEqual(afterStage1.progress.dailyXp, 35, 'Daily XP must advance to 35 after Stage 1');
+    assertEqual(afterStage1.progress.dailyMissionCompleted, false, 'Daily mission must still be incomplete at 35/50 XP');
+
+    // Stage 2 completion (+25 XP -> 60/50) crosses daily target!
+    const afterStage2 = applyStageCompletionToProgress(afterStage1.progress, {
+      stageNumber: 2,
+      completedAt: new Date().toISOString(),
+      stars: 3,
+      score: 10,
+      totalQuestions: 10,
+      xpEarned: 25,
+      verified: true,
+      source: 'online-verified',
+    });
+    assertEqual(afterStage2.xpAwarded, 25, 'First completion of Stage 2 must credit 25 XP');
+    assertEqual(afterStage2.progress.dailyXp, 60, 'Daily XP must advance to 60 after Stage 2');
+    assertEqual(
+      afterStage2.progress.dailyMissionCompleted,
+      true,
+      'Lesson reward crossing daily XP target (60 >= 50) must complete the daily mission'
+    );
+
+    saveUserProgress(afterStage2.progress, 'usr_mission_test');
+    const reloadedMissionProg = loadUserProgress('usr_mission_test');
+    assertEqual(reloadedMissionProg.dailyXp, 60, 'Daily XP must persist across reloads');
+    assertEqual(reloadedMissionProg.dailyMissionCompleted, true, 'Daily mission completion must persist across reloads');
+
+    // --- Reward Audit Item 4: Lesson replay displays and grants 0 new XP ---
+    const { resolveStageAttemptDisplayReward } = await import('../src/components/DuolingoStageModal.tsx');
+    const firstRunRewardDisplay = resolveStageAttemptDisplayReward({
+      wasAlreadyCompleted: false,
+      stageXpReward: 25,
+    });
+    assertEqual(firstRunRewardDisplay.displayedXpAwarded, 25, 'First stage completion must display +25 XP');
+    const replayRewardDisplay = resolveStageAttemptDisplayReward({
+      wasAlreadyCompleted: true,
+      stageXpReward: 25,
+    });
+    assertEqual(replayRewardDisplay.displayedXpAwarded, 0, 'Stage replay must display 0 new XP');
+    assert(
+      replayRewardDisplay.badgeLabel.includes('حالت تمرین'),
+      'Stage replay badge label must clearly indicate practice mode (0 new XP)'
+    );
+
+    const replayStage1Result = applyStageCompletionToProgress(afterStage2.progress, {
+      stageNumber: 1,
+      completedAt: new Date().toISOString(),
+      stars: 3,
+      score: 10,
+      totalQuestions: 10,
+      xpEarned: 25,
+      verified: true,
+      source: 'online-verified',
+    });
+    assertEqual(replayStage1Result.isReplay, true, 'Re-completing Stage 1 must be flagged as replay');
+    assertEqual(replayStage1Result.xpAwarded, 0, 'Replaying Stage 1 must grant 0 new XP');
+    assertEqual(
+      replayStage1Result.progress.totalXp,
+      afterStage2.progress.totalXp,
+      'Authoritative totalXp must not increase on stage replay'
+    );
+
+    // --- Reward Audit Item 5 & 6: First-lesson vs First-quiz achievement reward semantics (no double XP grant) ---
+    const { findNewlyUnlockedBadges } = await import('../src/data/badgeDefinitions.ts');
+    const freshDefaultProg = getDefaultUserProgress();
+    assertEqual(
+      freshDefaultProg.quizHistory.length,
+      0,
+      'Fresh default progress must not pre-seed quizHistory (preventing false First Quiz Spark on chapter completion)'
+    );
+
+    // 5. Completing a textbook chapter on fresh default progress must NEVER unlock First Quiz Spark
+    const afterChapter1MarkedDone = {
+      ...freshDefaultProg,
+      completedChapters: ['ch-1'],
+    };
+    const newlyUnlockedAfterChapter1 = findNewlyUnlockedBadges(
+      freshDefaultProg.unlockedBadgeIds || [],
+      afterChapter1MarkedDone,
+      psychologySections
+    );
+    assert(
+      !newlyUnlockedAfterChapter1.some((b) => b.id === 'badge-first-quiz'),
+      '5: Textbook chapter completion must NEVER trigger First Quiz Spark'
+    );
+
+    // 6a. Completing Stage 1 (First Lesson) credits Stage 1 XP once (15 XP canonical) without unlocking First Quiz Spark
+    const freshStage1Complete = applyStageCompletionToProgress(freshDefaultProg, {
+      stageNumber: 1,
+      completedAt: new Date().toISOString(),
+      stars: 3,
+      score: 10,
+      totalQuestions: 10,
+      xpEarned: 15,
+      verified: true,
+      source: 'online-verified',
+    }).progress;
+    const newlyUnlockedAfterStage1 = findNewlyUnlockedBadges(
+      freshDefaultProg.unlockedBadgeIds || [],
+      freshStage1Complete,
+      psychologySections
+    );
+    assert(
+      !newlyUnlockedAfterStage1.some((b) => b.id === 'badge-first-quiz'),
+      '6a: Completing Stage 1 lesson must NOT unlock First Quiz Spark (which is exclusively for standalone quizzes)'
+    );
+    assertEqual(
+      calculateAuthoritativeUserXp(freshStage1Complete),
+      15,
+      '6a: First-lesson completion must credit strictly Stage 1 XP (15 XP) once without double-counting'
+    );
+
+    // 6b. Answering first standalone quiz question unlocks First Quiz Spark (+50 XP) and credits XP once (15 + 10 + 50 = 75 XP)
+    const afterFirstRealQuiz = applyStandaloneQuizAnswerToProgress(freshStage1Complete, {
+      chapterId: 'ch-1',
+      questionId: 'q-1-1',
+      isCorrect: true,
+      userAnswer: 1,
+      timeSpentSeconds: 12,
+      difficulty: 'basic',
+    }).progress;
+    const newlyUnlockedAfterQuiz1 = findNewlyUnlockedBadges(
+      freshStage1Complete.unlockedBadgeIds || [],
+      afterFirstRealQuiz,
+      psychologySections
+    );
+    assert(
+      newlyUnlockedAfterQuiz1.some((b) => b.id === 'badge-first-quiz'),
+      '6b: First standalone quiz answer MUST unlock First Quiz Spark (+50 XP)'
+    );
+    const withFirstQuizBadgeClaimed = recordDailyXpActivity(
+      {
+        ...afterFirstRealQuiz,
+        unlockedBadgeIds: [
+          ...(afterFirstRealQuiz.unlockedBadgeIds || []),
+          ...newlyUnlockedAfterQuiz1.map((b) => b.id),
+        ],
+        claimedBadgeIds: [
+          ...(afterFirstRealQuiz.claimedBadgeIds || []),
+          ...newlyUnlockedAfterQuiz1.map((b) => b.id),
+        ],
+      },
+      50,
+      undefined,
+      { xpAlreadyInComputedLedger: true }
+    );
+    assertEqual(
+      calculateAuthoritativeUserXp(withFirstQuizBadgeClaimed),
+      15 + 10 + 50,
+      '6b: Authoritative XP after Stage 1 (15) + Quiz 1 (10) + First Quiz Spark badge (50) must be exactly 75 XP (never granting badge XP twice)'
+    );
+
+    // --- Scenarios 13, 14, 16: 3rd & 4th lesson completion & True/False perfect practice ---
+    const afterStage3 = applyStageCompletionToProgress(afterStage2.progress, {
+      stageNumber: 3,
+      completedAt: new Date().toISOString(),
+      stars: 3,
+      score: 10,
+      totalQuestions: 10,
+      xpEarned: 25,
+      verified: true,
+      source: 'online-verified',
+    });
+    const afterStage4 = applyStageCompletionToProgress(afterStage3.progress, {
+      stageNumber: 4,
+      completedAt: new Date().toISOString(),
+      stars: 3,
+      score: 10,
+      totalQuestions: 10,
+      xpEarned: 25,
+      verified: true,
+      source: 'online-verified',
+    });
+    assertEqual(
+      Object.keys(afterStage4.progress.completedStages || {}).length,
+      4,
+      'Scenario 16: Fourth lesson completion must record all 4 completed stages'
+    );
+    assertEqual(
+      afterStage4.progress.unlockedStageNumber,
+      5,
+      'Scenario 16: Completing stage 4 must unlock stage 5'
+    );
+
+    const tfQuestions = filterQuestionsByExerciseType(allCurriculumQuestions, 'true_false');
+    assert(tfQuestions.length >= 2, 'Scenario 14: Curriculum must include true_false questions');
+    let tfProg = afterStage4.progress;
+    for (const tfQ of tfQuestions.slice(0, 2)) {
+      const res = applyStandaloneQuizAnswerToProgress(tfProg, {
+        chapterId: tfQ.id.startsWith('q-1-') ? 'ch-1' : 'ch-2',
+        questionId: tfQ.id,
+        isCorrect: true,
+        userAnswer: tfQ.correctAnswer,
+        timeSpentSeconds: 8,
+        difficulty: tfQ.difficulty,
+      });
+      tfProg = res.progress;
+    }
+    assert(
+      (tfProg.dailyXp || 0) > (afterStage4.progress.dailyXp || 0),
+      'Scenario 14: True/False practice completion must advance dailyXp and totalXp'
+    );
+
+    console.log('  ✅ Suite 12 Passed!\n');
+
+    // =========================================================================
+    // SUITE 13: Phase 10C.4 Targeted Reward Integrity Repairs (Findings 1–5)
+    // =========================================================================
+    console.log('🛡️ Suite 13: Phase 10C.4 Targeted Reward Integrity Repairs (Findings 1–5)...');
+
+    const {
+      calculateCanonicalPomodoroXp,
+      CHAPTER_COMPLETION_XP_REWARD,
+      applyChapterCompletionToggleToProgress,
+      applyBadgeUnlocksToProgress,
+      reconcileUserProgressWithSyncedProfile,
+    } = await import('../src/utils/storage.ts');
+    const { applySyncedProfileToLocalStorage } = await import('../src/utils/cloudSync.ts');
+
+    // --- Finding 1: Pomodoro reward canonical policy, validation, idempotency, and failed sync handling ---
+    assertEqual(calculateCanonicalPomodoroXp(15), 20, 'F1: 15-min Pomodoro canonical reward must be 20 XP');
+    assertEqual(calculateCanonicalPomodoroXp(25), 35, 'F1: 25-min Pomodoro canonical reward must be 35 XP');
+    assertEqual(calculateCanonicalPomodoroXp(35), 50, 'F1: 35-min Pomodoro canonical reward must be 50 XP');
+    assertEqual(calculateCanonicalPomodoroXp(45), 65, 'F1: 45-min Pomodoro canonical reward must be 65 XP');
+    assertEqual(calculateCanonicalPomodoroXp(0), 0, 'F1: 0-min Pomodoro must grant 0 XP');
+    assertEqual(calculateCanonicalPomodoroXp(90), 0, 'F1: Out-of-bounds (>60m) Pomodoro must grant 0 XP');
+
+    const f1BaseProg = getDefaultUserProgress();
+    const f1ValidPomo = recordPomodoroSessionCompletion(f1BaseProg, {
+      sessionId: 'pomo_f1_valid_25m',
+      chapterId: 'ch-1',
+      seconds: 25 * 60,
+    });
+    assertEqual(f1ValidPomo.applied, true, 'F1: Valid 25m Pomodoro session must be applied locally');
+    assertEqual(f1ValidPomo.xpAwarded, 35, 'F1: Valid 25m Pomodoro must award 35 XP');
+    assertEqual(f1ValidPomo.minutesAdded, 25, 'F1: Valid 25m Pomodoro must add 25 study minutes');
+    assertEqual(f1ValidPomo.progress.totalXp, 35, 'F1: Local totalXp must increase to 35 after 25m Pomodoro');
+    assertEqual(f1ValidPomo.progress.dailyXp, 35, 'F1: Daily mission XP must advance by 35 after 25m Pomodoro');
+
+    // Duplicate local Pomodoro session ID must be rejected
+    const f1DupLocalPomo = recordPomodoroSessionCompletion(f1ValidPomo.progress, {
+      sessionId: 'pomo_f1_valid_25m',
+      chapterId: 'ch-1',
+      seconds: 25 * 60,
+    });
+    assertEqual(f1DupLocalPomo.applied, false, 'F1: Duplicate Pomodoro sessionId must not apply twice locally');
+    assertEqual(f1DupLocalPomo.xpAwarded, 0, 'F1: Duplicate Pomodoro sessionId must award 0 XP');
+    assertEqual(f1DupLocalPomo.progress.totalXp, 35, 'F1: Local totalXp must remain 35 after duplicate Pomodoro');
+    assertEqual(f1DupLocalPomo.progress.dailyXp, 35, 'F1: Daily XP must remain 35 after duplicate Pomodoro');
+
+    // Invalid sessionId format or short session (<60s) must be rejected
+    const f1BadIdPomo = recordPomodoroSessionCompletion(f1ValidPomo.progress, {
+      sessionId: 'invalid_id',
+      chapterId: 'ch-1',
+      seconds: 25 * 60,
+    });
+    assertEqual(f1BadIdPomo.applied, false, 'F1: Pomodoro without canonical pomo_* sessionId must be rejected');
+    assertEqual(f1BadIdPomo.xpAwarded, 0, 'F1: Rejected Pomodoro must award 0 XP');
+
+    // Server Pomodoro submission: valid session, duplicate submission, short session, spoofed XP, and timestamp mismatch
+    const pomoServerRes1 = await worker.fetch(
+      new Request('http://localhost/api/leaderboard/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost', 'X-Guest-Token': quizUserToken },
+        body: JSON.stringify({
+          userId: 'usr_quiz_test',
+          rewardType: 'pomodoro',
+          sessionId: 'pomo_server_25m_1',
+          chapterId: 'ch-1',
+          seconds: 25 * 60,
+          startedAt: new Date(Date.now() - 26 * 60 * 1000).toISOString(),
+          completedAt: new Date().toISOString(),
+        }),
+      }),
+      env,
+      ctx
+    );
+    assertEqual(pomoServerRes1.status, 200, 'F1: Valid server Pomodoro submission must return 200 OK');
+    const pomoServerData1 = await pomoServerRes1.json();
+    assertEqual(pomoServerData1.applied, true, 'F1: First server Pomodoro submission must be applied');
+    assertEqual(pomoServerData1.awardedXp, 35, 'F1: Server must credit canonical 35 XP for 25-min Pomodoro');
+    assertEqual(pomoServerData1.profile.totalStudyMinutes, 25, 'F1: Server profile totalStudyMinutes must increment by 25');
+
+    // Duplicate server Pomodoro submission
+    const pomoServerDupRes = await worker.fetch(
+      new Request('http://localhost/api/leaderboard/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost', 'X-Guest-Token': quizUserToken },
+        body: JSON.stringify({
+          userId: 'usr_quiz_test',
+          rewardType: 'pomodoro',
+          sessionId: 'pomo_server_25m_1',
+          chapterId: 'ch-1',
+          seconds: 25 * 60,
+        }),
+      }),
+      env,
+      ctx
+    );
+    assertEqual(pomoServerDupRes.status, 200, 'F1: Duplicate server Pomodoro submission must return 200 idempotently');
+    const pomoServerDupData = await pomoServerDupRes.json();
+    assertEqual(pomoServerDupData.applied, false, 'F1: Duplicate server Pomodoro must have applied = false');
+    assertEqual(pomoServerDupData.alreadyClaimed, true, 'F1: Duplicate server Pomodoro must have alreadyClaimed = true');
+    assertEqual(pomoServerDupData.awardedXp, 0, 'F1: Duplicate server Pomodoro must award 0 XP');
+    assertEqual(pomoServerDupData.profile.totalStudyMinutes, 25, 'F1: Duplicate server Pomodoro must not double-count study minutes');
+
+    // Client-inflated XP on Pomodoro must be rejected with 400
+    const pomoSpoofedXpRes = await worker.fetch(
+      new Request('http://localhost/api/leaderboard/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost', 'X-Guest-Token': quizUserToken },
+        body: JSON.stringify({
+          userId: 'usr_quiz_test',
+          rewardType: 'pomodoro',
+          sessionId: 'pomo_server_spoofed_xp',
+          chapterId: 'ch-1',
+          seconds: 25 * 60,
+          xpEarned: 500,
+        }),
+      }),
+      env,
+      ctx
+    );
+    assertEqual(pomoSpoofedXpRes.status, 400, 'F1: Server must reject Pomodoro submission with client-inflated xpEarned (400)');
+
+    // Short (<60s) or timestamp-faked Pomodoro session must be rejected with 400
+    const pomoShortRes = await worker.fetch(
+      new Request('http://localhost/api/leaderboard/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost', 'X-Guest-Token': quizUserToken },
+        body: JSON.stringify({
+          userId: 'usr_quiz_test',
+          rewardType: 'pomodoro',
+          sessionId: 'pomo_server_short_30s',
+          chapterId: 'ch-1',
+          seconds: 30,
+        }),
+      }),
+      env,
+      ctx
+    );
+    assertEqual(pomoShortRes.status, 400, 'F1: Server must reject short Pomodoro session (<60s) with 400');
+
+    const pomoFakeElapsedRes = await worker.fetch(
+      new Request('http://localhost/api/leaderboard/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost', 'X-Guest-Token': quizUserToken },
+        body: JSON.stringify({
+          userId: 'usr_quiz_test',
+          rewardType: 'pomodoro',
+          sessionId: 'pomo_server_fake_elapsed',
+          chapterId: 'ch-1',
+          seconds: 25 * 60,
+          startedAt: new Date(Date.now() - 10 * 1000).toISOString(),
+          completedAt: new Date().toISOString(),
+        }),
+      }),
+      env,
+      ctx
+    );
+    assertEqual(pomoFakeElapsedRes.status, 400, 'F1: Server must reject Pomodoro when elapsed timestamps are shorter than claimed duration (400)');
+
+    // Failed synchronization (rejected submission) must return ok: false from submitStageOrQuizReward so it is never treated as server-confirmed
+    const prevFetchF1 = globalThis.fetch;
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const urlStr =
+        typeof input === 'string'
+          ? input.startsWith('http')
+            ? input
+            : `http://localhost${input}`
+          : input instanceof URL
+          ? input.toString()
+          : input.url;
+      return worker.fetch(new Request(urlStr, init), env, ctx);
+    };
+    try {
+      const rejectedPomoSyncResult = await submitStageOrQuizReward(
+        {
+          rewardType: 'pomodoro',
+          sessionId: 'pomo_rejected_short',
+          chapterId: 'ch-1',
+          seconds: 15,
+        },
+        1,
+        { skipAutoBootstrap: true }
+      );
+      assertEqual(
+        rejectedPomoSyncResult.ok,
+        false,
+        'F1: Rejected Pomodoro submission must return ok=false and never appear as a server-confirmed reward'
+      );
+    } finally {
+      globalThis.fetch = prevFetchF1;
+    }
+
+    // --- Finding 2: Textbook chapter XP farming prevention ---
+    assertEqual(CHAPTER_COMPLETION_XP_REWARD, 20, 'F2: Canonical chapter completion reward must be 20 XP');
+    const f2StartProg = getDefaultUserProgress();
+    const f2Mark1 = applyChapterCompletionToggleToProgress(f2StartProg, 'ch-2');
+    assertEqual(f2Mark1.isCompleted, true, 'F2: First toggle of ch-2 must mark it completed');
+    assertEqual(f2Mark1.alreadyRewarded, false, 'F2: First completion of ch-2 must not be marked alreadyRewarded');
+    assertEqual(f2Mark1.xpAwarded, 20, 'F2: First completion of ch-2 must award +20 XP');
+    assertEqual(f2Mark1.progress.totalXp, 20, 'F2: totalXp must be 20 after first completion of ch-2');
+    assertEqual(f2Mark1.progress.dailyXp, 20, 'F2: dailyXp must be 20 after first completion of ch-2');
+    assert(f2Mark1.progress.rewardedChapterIds?.includes('ch-2'), 'F2: ch-2 must be recorded in rewardedChapterIds');
+
+    // Unmarking ch-2 must remove completion flag without reducing XP or clearing rewardedChapterIds
+    const f2Unmark1 = applyChapterCompletionToggleToProgress(f2Mark1.progress, 'ch-2');
+    assertEqual(f2Unmark1.isCompleted, false, 'F2: Second toggle of ch-2 must unmark completion');
+    assertEqual(f2Unmark1.alreadyRewarded, true, 'F2: Unmarking ch-2 must preserve alreadyRewarded = true');
+    assertEqual(f2Unmark1.xpAwarded, 0, 'F2: Unmarking ch-2 must award 0 XP');
+    assertEqual(f2Unmark1.progress.totalXp, 20, 'F2: totalXp must remain 20 when ch-2 is unmarked');
+    assert(f2Unmark1.progress.rewardedChapterIds?.includes('ch-2'), 'F2: rewardedChapterIds must retain ch-2 when unmarked');
+
+    // Re-marking ch-2 repeatedly must NEVER grant XP or daily mission progress again
+    const f2Remark1 = applyChapterCompletionToggleToProgress(f2Unmark1.progress, 'ch-2');
+    assertEqual(f2Remark1.isCompleted, true, 'F2: Third toggle of ch-2 must mark it completed again');
+    assertEqual(f2Remark1.alreadyRewarded, true, 'F2: Re-marking ch-2 must report alreadyRewarded = true');
+    assertEqual(f2Remark1.xpAwarded, 0, 'F2: Re-marking ch-2 must award 0 XP');
+    assertEqual(f2Remark1.progress.totalXp, 20, 'F2: totalXp must remain 20 after re-marking ch-2');
+    assertEqual(f2Remark1.progress.dailyXp, 20, 'F2: dailyXp must remain 20 after re-marking ch-2');
+
+    // Reload persistence of rewardedChapterIds
+    saveUserProgress(f2Unmark1.progress, 'usr_chapter_farm_test');
+    const f2ReloadedProg = loadUserProgress('usr_chapter_farm_test');
+    assert(
+      f2ReloadedProg.rewardedChapterIds?.includes('ch-2'),
+      'F2: rewardedChapterIds must persist across save/load reload even if chapter is currently unmarked'
+    );
+    const f2RemarkAfterReload = applyChapterCompletionToggleToProgress(f2ReloadedProg, 'ch-2');
+    assertEqual(f2RemarkAfterReload.xpAwarded, 0, 'F2: Re-marking ch-2 after reload must still award 0 XP');
+    assertEqual(f2RemarkAfterReload.progress.totalXp, 20, 'F2: totalXp must remain 20 after reload and re-mark');
+
+    // Server chapter_completion reward verification and idempotency
+    const chServerRes1 = await worker.fetch(
+      new Request('http://localhost/api/leaderboard/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost', 'X-Guest-Token': quizUserToken },
+        body: JSON.stringify({
+          userId: 'usr_quiz_test',
+          rewardType: 'chapter_completion',
+          chapterId: 'ch-1',
+        }),
+      }),
+      env,
+      ctx
+    );
+    assertEqual(chServerRes1.status, 200, 'F2: Valid server chapter_completion must return 200 OK');
+    const chServerData1 = await chServerRes1.json();
+    assertEqual(chServerData1.applied, true, 'F2: First server chapter_completion for ch-1 must apply');
+    assertEqual(chServerData1.awardedXp, 20, 'F2: Server must credit +20 XP for ch-1 completion');
+    assert(chServerData1.profile.completedChapters.includes('ch-1'), 'F2: Server profile completedChapters must include ch-1');
+
+    const chServerDupRes = await worker.fetch(
+      new Request('http://localhost/api/leaderboard/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost', 'X-Guest-Token': quizUserToken },
+        body: JSON.stringify({
+          userId: 'usr_quiz_test',
+          rewardType: 'chapter_completion',
+          chapterId: 'ch-1',
+        }),
+      }),
+      env,
+      ctx
+    );
+    const chServerDupData = await chServerDupRes.json();
+    assertEqual(chServerDupData.applied, false, 'F2: Duplicate chapter_completion for ch-1 must not apply a second time');
+    assertEqual(chServerDupData.alreadyClaimed, true, 'F2: Duplicate chapter_completion must return alreadyClaimed = true');
+    assertEqual(chServerDupData.awardedXp, 0, 'F2: Duplicate chapter_completion must award 0 XP');
+
+    // --- Finding 3: Stale React state & localStorage reconciliation after server synchronization ---
+    const f3LocalProg = {
+      ...getDefaultUserProgress(),
+      totalXp: 25,
+      streakDays: 1,
+      totalStudyMinutes: 10,
+      completedChapters: ['ch-1'],
+      rewardedChapterIds: ['ch-1'],
+      unlockedBadgeIds: [],
+      claimedBadgeIds: [],
+      completedStages: {
+        1: {
+          stageNumber: 1,
+          completedAt: '2026-03-01T00:00:00.000Z',
+          stars: 3,
+          score: 10,
+          totalQuestions: 10,
+          xpEarned: 25,
+          verified: true,
+          source: 'online-verified' as const,
+        },
+      },
+    };
+
+    // 3a. XP-only synchronization when completedStages is completely unchanged
+    const f3XpOnlyServerProfile = {
+      userId: 'usr_sync_f3',
+      name: 'کاربر همگام‌سازی',
+      avatar: '🦉',
+      xp: 120,
+      streakDays: 1,
+      totalStudyMinutes: 10,
+      completedChapters: ['ch-1'],
+      completedStages: f3LocalProg.completedStages,
+      unlockedBadgeIds: [],
+      bookmarkedChapters: [],
+      lastSyncedAt: new Date().toISOString(),
+    };
+    const f3AfterXpOnly = reconcileUserProgressWithSyncedProfile(f3LocalProg, f3XpOnlyServerProfile);
+    assert(f3AfterXpOnly !== f3LocalProg, 'F3: XP-only server update must produce a new state reference even when completedStages is unchanged');
+    assertEqual(f3AfterXpOnly.totalXp, 120, 'F3: XP-only server sync must reconcile totalXp to 120');
+
+    // 3b. Badge reward synchronization when completedStages is unchanged
+    const f3BadgeServerProfile = {
+      ...f3XpOnlyServerProfile,
+      xp: 170,
+      unlockedBadgeIds: ['badge-first-quiz'],
+    };
+    const f3AfterBadgeSync = reconcileUserProgressWithSyncedProfile(f3AfterXpOnly, f3BadgeServerProfile);
+    assertEqual(f3AfterBadgeSync.totalXp, 170, 'F3: Badge sync must update totalXp to 170');
+    assert(f3AfterBadgeSync.unlockedBadgeIds?.includes('badge-first-quiz'), 'F3: Badge sync must reconcile unlockedBadgeIds');
+    assert(f3AfterBadgeSync.claimedBadgeIds?.includes('badge-first-quiz'), 'F3: Badge sync must reconcile claimedBadgeIds');
+
+    // 3c. Repeated identical sync events must return the EXACT same reference (no feedback loop)
+    const f3RepeatedIdentical = reconcileUserProgressWithSyncedProfile(f3AfterBadgeSync, f3BadgeServerProfile);
+    assertEqual(
+      f3RepeatedIdentical,
+      f3AfterBadgeSync,
+      'F3: Repeated identical sync event must return exact same object reference to prevent React/localStorage feedback loops'
+    );
+
+    // 3d. applySyncedProfileToLocalStorage persists reconciled server state so subsequent load/save does not overwrite newer server XP
+    saveUserProgress(f3LocalProg, 'usr_sync_f3');
+    applySyncedProfileToLocalStorage(f3BadgeServerProfile);
+    const f3LoadedFromStorage = loadUserProgress('usr_sync_f3');
+    assertEqual(f3LoadedFromStorage.totalXp, 170, 'F3: applySyncedProfileToLocalStorage must persist server XP (170) to localStorage');
+    assert(
+      f3LoadedFromStorage.unlockedBadgeIds?.includes('badge-first-quiz'),
+      'F3: applySyncedProfileToLocalStorage must persist server unlockedBadgeIds to localStorage'
+    );
+
+    // --- Finding 4: Stage 100 chest eligibility requires BOTH stages 1..99 AND Stage 100 itself ---
+    const stages1To99Only: Record<number, any> = {};
+    for (let i = 1; i <= 99; i++) {
+      stages1To99Only[i] = {
+        stageNumber: i,
+        completedAt: new Date().toISOString(),
+        stars: 3,
+        score: 5,
+        totalQuestions: 5,
+        xpEarned: 25,
+        verified: true,
+        source: 'online-verified',
+      };
+    }
+    const f4IncompleteStage100Prog = {
+      ...getDefaultUserProgress(),
+      diamonds: 200,
+      claimedStageChests: [],
+      completedStages: stages1To99Only,
+    };
+    const f4AttemptWithoutStage100 = claimStageChestReward(f4IncompleteStage100Prog, 100);
+    assertEqual(
+      f4AttemptWithoutStage100.claimed,
+      false,
+      'F4: Stage 100 chest claim MUST be rejected when Stages 1..99 are done but Stage 100 itself is incomplete'
+    );
+    assertEqual(f4AttemptWithoutStage100.diamondsAwarded, 0, 'F4: Ineligible Stage 100 chest claim must award 0 diamonds');
+    assertEqual(f4AttemptWithoutStage100.progress.diamonds, 200, 'F4: Diamonds must remain 200 when Stage 100 is incomplete');
+
+    // Stage 100 completed, but an earlier stage (Stage 50) is missing
+    const stagesMissing50: Record<number, any> = {
+      ...stages1To99Only,
+      100: {
+        stageNumber: 100,
+        completedAt: new Date().toISOString(),
+        stars: 3,
+        score: 5,
+        totalQuestions: 5,
+        xpEarned: 50,
+        verified: true,
+        source: 'online-verified',
+      },
+    };
+    delete stagesMissing50[50];
+    const f4AttemptMissingEarlier = claimStageChestReward(
+      { ...f4IncompleteStage100Prog, completedStages: stagesMissing50 },
+      100
+    );
+    assertEqual(
+      f4AttemptMissingEarlier.claimed,
+      false,
+      'F4: Stage 100 chest claim MUST be rejected when any earlier stage (e.g. Stage 50) is incomplete'
+    );
+    assertEqual(f4AttemptMissingEarlier.diamondsAwarded, 0, 'F4: Missing earlier stage must award 0 diamonds');
+
+    // --- Finding 5: Badge reward accounting, defaultProgress, badge-diamond-champ XP, multi-pass & server verification ---
+    const f5Default = getDefaultUserProgress();
+    assertEqual(f5Default.streakDays, 1, 'F5: Default progress must start with streakDays = 1');
+    assertEqual((f5Default.unlockedBadgeIds || []).length, 0, 'F5: Default progress must not pre-unlock badge-streak-3');
+    assertEqual(f5Default.claimedBadgeIds?.length || 0, 0, 'F5: Default progress must start with empty claimedBadgeIds');
+
+    // Existing users' stored earned badges must be preserved on loadUserProgress
+    saveUserProgress(
+      {
+        ...f5Default,
+        streakDays: 3,
+        unlockedBadgeIds: ['badge-streak-3'],
+        claimedBadgeIds: ['badge-streak-3'],
+        totalXp: 80,
+      },
+      'usr_f5_existing_badges'
+    );
+    const f5ReloadedExisting = loadUserProgress('usr_f5_existing_badges');
+    assert(
+      f5ReloadedExisting.unlockedBadgeIds?.includes('badge-streak-3'),
+      'F5: Existing users stored badges must be preserved on loadUserProgress'
+    );
+    assertEqual(
+      calculateAuthoritativeUserXp(f5ReloadedExisting),
+      80,
+      'F5: Claimed badge-streak-3 must contribute its 80 XP to authoritative XP'
+    );
+
+    // Multi-pass badge evaluation & badge-diamond-champ using calculateAuthoritativeUserXp:
+    // Start with 450 XP from verified stage completions (stages 1..18) + 1 standalone quiz answer (+10 XP = 460 XP).
+    // Unlocking badge-first-quiz (+50 XP) brings total authoritative XP to 510 XP (>= 500 XP),
+    // which MUST unlock badge-diamond-champ (+250 XP) in the same multi-pass evaluation!
+    const f5StagesMap: Record<number, any> = {};
+    for (let i = 1; i <= 18; i++) {
+      f5StagesMap[i] = {
+        stageNumber: i,
+        completedAt: new Date().toISOString(),
+        stars: 3,
+        score: 5,
+        totalQuestions: 5,
+        xpEarned: 25,
+        verified: true,
+        source: 'online-verified',
+      };
+    }
+    const f5PreCascadeProg = applyStandaloneQuizAnswerToProgress(
+      {
+        ...getDefaultUserProgress(),
+        completedStages: f5StagesMap, // 18 * 25 = 450 XP
+        totalXp: 450,
+      },
+      {
+        chapterId: 'ch-1',
+        questionId: 'q-1-1',
+        isCorrect: true,
+        userAnswer: 1,
+        timeSpentSeconds: 15,
+        difficulty: 'basic',
+      }
+    ).progress;
+    assertEqual(
+      calculateAuthoritativeUserXp(f5PreCascadeProg),
+      460,
+      'F5: Pre-badge XP must be 450 (stages) + 10 (quiz) = 460 XP'
+    );
+
+    const f5CascadeResult = applyBadgeUnlocksToProgress(f5PreCascadeProg, psychologySections);
+    const f5CascadeIds = f5CascadeResult.newlyUnlockedBadges.map((b) => b.id);
+    assert(
+      f5CascadeIds.includes('badge-first-quiz') && f5CascadeIds.includes('badge-diamond-champ'),
+      'F5: Multi-pass badge evaluation must unlock badge-first-quiz (+50 XP -> 510 XP) AND cascade to unlock badge-diamond-champ (>= 500 XP) in one evaluation'
+    );
+    assertEqual(
+      f5CascadeResult.badgeXpAwarded,
+      50 + 250,
+      'F5: Multi-pass badge unlock must credit 50 + 250 = 300 badge XP once'
+    );
+    assertEqual(
+      f5CascadeResult.progress.totalXp,
+      460 + 300,
+      'F5: Total authoritative XP after cascading badges must be 760 XP without double-counting'
+    );
+
+    // Re-running applyBadgeUnlocksToProgress on the updated state must unlock nothing (idempotent)
+    const f5SecondRun = applyBadgeUnlocksToProgress(f5CascadeResult.progress, psychologySections);
+    assertEqual(f5SecondRun.newlyUnlockedBadges.length, 0, 'F5: Subsequent badge evaluation must unlock 0 duplicate badges');
+    assertEqual(f5SecondRun.badgeXpAwarded, 0, 'F5: Subsequent badge evaluation must award 0 XP');
+
+    // Server badge eligibility enforcement: submitting an unearned badge ID (e.g. badge-streak-7 when streakDays=1) must be rejected with 400
+    const unearnedBadgeServerRes = await worker.fetch(
+      new Request('http://localhost/api/leaderboard/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost', 'X-Guest-Token': quizUserToken },
+        body: JSON.stringify({
+          userId: 'usr_quiz_test',
+          rewardType: 'badge_unlock',
+          badgeId: 'badge-streak-7',
+        }),
+      }),
+      env,
+      ctx
+    );
+    assertEqual(
+      unearnedBadgeServerRes.status,
+      400,
+      'F5: Server must reject badge_unlock when user has not met badge eligibility criteria (400)'
+    );
+
+    console.log('  ✅ Suite 13 Passed!\n');
+
+    // =========================================================================
+    // SUITE 14: Phase 10C.6 Multi-Discipline Learning Selector
+    // =========================================================================
+    console.log('🧭 Suite 14: Phase 10C.6 Multi-Discipline Learning Selector...');
+
+    const {
+      ACTIVE_DISCIPLINE_STORAGE_KEY,
+      DEFAULT_LEARNING_DISCIPLINE_ID,
+      LEARNING_DISCIPLINES,
+      SUPPORTED_DISCIPLINE_IDS,
+      isValidDisciplineId,
+      normalizeDisciplineId,
+      getDisciplineDefinition,
+      loadActiveDiscipline,
+      saveActiveDiscipline,
+      createSynchronizedDisciplineController,
+    } = await import('../src/utils/storage.ts');
+    const React = (await import('react')).default;
+    const { renderToStaticMarkup } = await import('react-dom/server');
+    const { DashboardView } = await import('../src/components/DashboardView.tsx');
+    const { Navbar } = await import('../src/components/Navbar.tsx');
+
+    // 14.1 Psychology is the default when no valid value is stored
+    mockLocalStorage.removeItem(ACTIVE_DISCIPLINE_STORAGE_KEY);
+    assertEqual(
+      ACTIVE_DISCIPLINE_STORAGE_KEY,
+      'psychomaster:active-discipline:v1',
+      '14.1: Active discipline storage key must be versioned and namespaced as psychomaster:active-discipline:v1'
+    );
+    assertEqual(
+      DEFAULT_LEARNING_DISCIPLINE_ID,
+      'psychology',
+      '14.1: Default learning discipline ID must be psychology'
+    );
+    assertEqual(
+      loadActiveDiscipline(),
+      'psychology',
+      '14.1: loadActiveDiscipline must return psychology when storage is empty'
+    );
+
+    // 14.2 Selected discipline persists across reload through the storage abstraction
+    for (const disciplineId of SUPPORTED_DISCIPLINE_IDS) {
+      const saved = saveActiveDiscipline(disciplineId);
+      assertEqual(saved, disciplineId, `14.2: saveActiveDiscipline must return ${disciplineId}`);
+      assertEqual(
+        mockLocalStorage.getItem(ACTIVE_DISCIPLINE_STORAGE_KEY),
+        disciplineId,
+        `14.2: localStorage must persist ${disciplineId}`
+      );
+      assertEqual(
+        loadActiveDiscipline(),
+        disciplineId,
+        `14.2: Reloading via loadActiveDiscipline must restore ${disciplineId}`
+      );
+    }
+
+    // 14.3 Invalid stored discipline IDs fall back safely to Psychology
+    for (const invalidVal of ['invalid_domain', 'biology', '', '   ', 'PSYCHOLOGY', null, undefined, 123]) {
+      assertEqual(
+        isValidDisciplineId(invalidVal),
+        false,
+        `14.3: isValidDisciplineId must reject ${JSON.stringify(invalidVal)}`
+      );
+      assertEqual(
+        normalizeDisciplineId(invalidVal),
+        'psychology',
+        `14.3: normalizeDisciplineId must fall back to psychology for ${JSON.stringify(invalidVal)}`
+      );
+    }
+    mockLocalStorage.setItem(ACTIVE_DISCIPLINE_STORAGE_KEY, 'corrupted_unknown_discipline');
+    assertEqual(
+      loadActiveDiscipline(),
+      'psychology',
+      '14.3: Corrupted localStorage discipline value must safely fall back to psychology'
+    );
+
+    // 14.4 Dashboard and header controls stay synchronized through one shared source of truth
+    mockLocalStorage.removeItem(ACTIVE_DISCIPLINE_STORAGE_KEY);
+    const sharedController = createSynchronizedDisciplineController();
+    let headerObservedDiscipline = sharedController.getActiveDiscipline();
+    let dashboardObservedDiscipline = sharedController.getActiveDiscipline();
+    let notificationCount = 0;
+
+    const unsubHeader = sharedController.subscribe((nextId) => {
+      headerObservedDiscipline = nextId;
+      notificationCount++;
+    });
+    const unsubDashboard = sharedController.subscribe((nextId) => {
+      dashboardObservedDiscipline = nextId;
+    });
+
+    assertEqual(headerObservedDiscipline, 'psychology', '14.4: Header starts on psychology');
+    assertEqual(dashboardObservedDiscipline, 'psychology', '14.4: Dashboard starts on psychology');
+
+    // Selecting 'art' from Dashboard updates Header and localStorage immediately
+    sharedController.selectDiscipline('art');
+    assertEqual(headerObservedDiscipline, 'art', '14.4: Selecting art updates Header immediately');
+    assertEqual(dashboardObservedDiscipline, 'art', '14.4: Selecting art updates Dashboard immediately');
+    assertEqual(loadActiveDiscipline(), 'art', '14.4: Selecting art persists to localStorage');
+    assertEqual(notificationCount, 1, '14.4: Selecting art notifies subscribers once');
+
+    // Selecting the already-active discipline ('art') does not trigger duplicate notifications or loops
+    sharedController.selectDiscipline('art');
+    assertEqual(
+      notificationCount,
+      1,
+      '14.4: Selecting already-active discipline must not fire duplicate notifications'
+    );
+
+    // Selecting 'law' from Header updates Dashboard and localStorage immediately
+    sharedController.selectDiscipline('law');
+    assertEqual(headerObservedDiscipline, 'law', '14.4: Selecting law from Header updates Header');
+    assertEqual(dashboardObservedDiscipline, 'law', '14.4: Selecting law from Header updates Dashboard');
+    assertEqual(loadActiveDiscipline(), 'law', '14.4: Selecting law persists to localStorage');
+
+    unsubHeader();
+    unsubDashboard();
+
+    // 14.5 Switching disciplines does NOT modify XP, progress, achievements, notes, bookmarks, Pomodoro, or exam history
+    const richProgressBeforeSwitch = {
+      ...getDefaultUserProgress(),
+      totalXp: 645,
+      dailyXp: 35,
+      streakDays: 5,
+      diamonds: 630,
+      totalStudyMinutes: 120,
+      completedChapters: ['ch-1', 'ch-2', 'ch-3'],
+      rewardedChapterIds: ['ch-1', 'ch-2', 'ch-3'],
+      bookmarkedChapters: ['ch-1', 'ch-5'],
+      pinnedChapters: ['ch-1', 'ch-10'],
+      chapterNotes: {
+        'ch-1': 'یادداشت تخصصی فصل اول',
+        'ch-2': 'یادداشت تخصصی فصل دوم',
+      },
+      unlockedBadgeIds: ['badge-first-quiz', 'badge-streak-3'],
+      claimedBadgeIds: ['badge-first-quiz', 'badge-streak-3'],
+      pomodoroHistory: [
+        {
+          id: 'pomo_preserve_1',
+          chapterId: 'ch-1',
+          minutes: 25,
+          xpEarned: 35,
+          completedAt: '2026-03-10T10:00:00.000Z',
+        },
+      ],
+      completedStages: {
+        1: {
+          stageNumber: 1,
+          completedAt: '2026-03-10T09:00:00.000Z',
+          stars: 3,
+          score: 10,
+          totalQuestions: 10,
+          xpEarned: 25,
+          verified: true,
+          source: 'online-verified' as const,
+        },
+      },
+    };
+    saveUserProgress(richProgressBeforeSwitch, 'usr_discipline_safety');
+    const serializedBeforeSwitch = JSON.stringify(loadUserProgress('usr_discipline_safety'));
+    const examHistoryBeforeSwitch = await examRepo.getUserExamHistory('usr_exam_1');
+
+    for (const d of SUPPORTED_DISCIPLINE_IDS) {
+      saveActiveDiscipline(d);
+    }
+
+    const loadedAfterAllSwitches = loadUserProgress('usr_discipline_safety');
+    const serializedAfterSwitch = JSON.stringify(loadedAfterAllSwitches);
+    const examHistoryAfterSwitch = await examRepo.getUserExamHistory('usr_exam_1');
+
+    assertEqual(
+      serializedAfterSwitch,
+      serializedBeforeSwitch,
+      '14.5: Switching across all 7 disciplines must not alter any field in UserProgress (XP, stages, badges, notes, bookmarks, Pomodoro)'
+    );
+    assertEqual(
+      loadedAfterAllSwitches.totalXp,
+      645,
+      '14.5: User totalXp must remain 645 after switching disciplines'
+    );
+    assertEqual(
+      loadedAfterAllSwitches.chapterNotes['ch-2'],
+      'یادداشت تخصصی فصل دوم',
+      '14.5: Chapter notes must remain intact after switching disciplines'
+    );
+    assertEqual(
+      examHistoryAfterSwitch.attempts.length,
+      examHistoryBeforeSwitch.attempts.length,
+      '14.5: Server/D1 exam history must remain completely untouched when switching disciplines'
+    );
+
+    // 14.6 All 7 supported disciplines and exact concise Persian labels are present and rendered
+    const expectedDisciplines: Array<{ id: string; label: string }> = [
+      { id: 'psychology', label: 'روانشناسی' },
+      { id: 'sociology', label: 'جامعهشناسی' },
+      { id: 'law', label: 'حقوق' },
+      { id: 'art', label: 'هنر' },
+      { id: 'philosophy', label: 'فلسفه' },
+      { id: 'entrance_exam', label: 'کنکور' },
+      { id: 'politics', label: 'سیاست' },
+    ];
+
+    assertEqual(
+      LEARNING_DISCIPLINES.length,
+      7,
+      '14.6: LEARNING_DISCIPLINES must contain exactly 7 supported disciplines'
+    );
+    for (let i = 0; i < expectedDisciplines.length; i++) {
+      assertEqual(
+        LEARNING_DISCIPLINES[i].id,
+        expectedDisciplines[i].id as any,
+        `14.6: Discipline #${i + 1} ID must be ${expectedDisciplines[i].id}`
+      );
+      assertEqual(
+        LEARNING_DISCIPLINES[i].label,
+        expectedDisciplines[i].label,
+        `14.6: Discipline #${i + 1} Persian label must be "${expectedDisciplines[i].label}"`
+      );
+    }
+    assertEqual(
+      getDisciplineDefinition('psychology').hasCurriculum,
+      true,
+      '14.6: Psychology must be marked hasCurriculum = true'
+    );
+    for (const nonPsychId of ['sociology', 'law', 'art', 'philosophy', 'entrance_exam', 'politics']) {
+      assertEqual(
+        getDisciplineDefinition(nonPsychId).hasCurriculum,
+        false,
+        `14.6: ${nonPsychId} must honestly report hasCurriculum = false in this phase`
+      );
+    }
+
+    // Render DashboardView with Psychology vs non-Psychology discipline ('art')
+    const dashboardPsychHtml = renderToStaticMarkup(
+      React.createElement(DashboardView, {
+        sections: psychologySections,
+        progress: richProgressBeforeSwitch,
+        activeDiscipline: 'psychology',
+        onSelectDiscipline: () => {},
+        onSelectChapter: () => {},
+        onStartQuiz: () => {},
+        onOpenNotes: () => {},
+        onOpenBadges: () => {},
+      })
+    );
+    for (const item of expectedDisciplines) {
+      assert(
+        dashboardPsychHtml.includes(item.label),
+        `14.6: Rendered DashboardView must display Persian discipline label "${item.label}"`
+      );
+    }
+    assert(
+      dashboardPsychHtml.includes('data-testid="dashboard-discipline-selector"'),
+      '14.6: Rendered DashboardView must include dashboard-discipline-selector nav'
+    );
+    assert(
+      dashboardPsychHtml.includes('ادامه یادگیری') &&
+        !dashboardPsychHtml.includes('data-testid="discipline-empty-curriculum-state"'),
+      '14.6: DashboardView on psychology must render Continue Learning card and NOT empty-curriculum state'
+    );
+
+    const dashboardArtHtml = renderToStaticMarkup(
+      React.createElement(DashboardView, {
+        sections: psychologySections,
+        progress: richProgressBeforeSwitch,
+        activeDiscipline: 'art',
+        onSelectDiscipline: () => {},
+        onSelectChapter: () => {},
+        onStartQuiz: () => {},
+        onOpenNotes: () => {},
+        onOpenBadges: () => {},
+      })
+    );
+    assert(
+      dashboardArtHtml.includes('data-testid="discipline-empty-curriculum-state"') &&
+        dashboardArtHtml.includes('میز مطالعه هنر') &&
+        dashboardArtHtml.includes('در حال تدوین سرفصل اختصاصی'),
+      '14.6: DashboardView on non-Psychology discipline (art) must render honest future-curriculum state without faking stages'
+    );
+    assert(
+      dashboardArtHtml.includes('۶۴۵ XP') && dashboardArtHtml.includes('مشاهده همه دستاوردها'),
+      '14.6: DashboardView on non-Psychology discipline must preserve compact progress summary and achievements link'
+    );
+
+    // Render Navbar with activeDiscipline='philosophy' wrapped in AuthProvider
+    const { AuthProvider } = await import('../src/context/AuthContext.tsx');
+    const navbarPhilosophyHtml = renderToStaticMarkup(
+      React.createElement(
+        AuthProvider,
+        null,
+        React.createElement(Navbar, {
+          activeTab: 'dashboard',
+          setActiveTab: () => {},
+          activeDiscipline: 'philosophy',
+          onSelectDiscipline: () => {},
+          onOpenSearch: () => {},
+          onOpenSettings: () => {},
+          streakDays: 5,
+          totalXp: 645,
+        })
+      )
+    );
+    assert(
+      navbarPhilosophyHtml.includes('data-testid="navbar-discipline-switcher"') &&
+        navbarPhilosophyHtml.includes('فلسفه'),
+      '14.6: Rendered Navbar must display compact discipline switcher with active discipline label (فلسفه)'
+    );
+
+    // 14.7 Responsive classes & App.tsx shared wiring verification
+    const appSource14 = readSrcFile('App.tsx');
+    const navbarSource14 = readSrcFile('components/Navbar.tsx');
+    const dashboardSource14 = readSrcFile('components/DashboardView.tsx');
+    assert(
+      appSource14.includes('activeDiscipline={activeDiscipline}') &&
+        appSource14.includes('onSelectDiscipline={handleSelectDiscipline}'),
+      '14.7: App.tsx must pass shared activeDiscipline and handleSelectDiscipline to both Navbar and DashboardView'
+    );
+    assert(
+      dashboardSource14.includes('overflow-x-auto') &&
+        dashboardSource14.includes('shrink-0') &&
+        dashboardSource14.includes('min-h-[44px]'),
+      '14.7: Dashboard discipline selector must use horizontal scrolling (overflow-x-auto), shrink-0, and >=44px touch targets'
+    );
+    assert(
+      navbarSource14.includes('aria-haspopup="listbox"') &&
+        navbarSource14.includes('role="listbox"'),
+      '14.7: Header discipline switcher must expose accessible listbox ARIA attributes'
+    );
+
+    // Restore default discipline in mockLocalStorage
+    saveActiveDiscipline('psychology');
+    console.log('  ✅ Suite 14 Passed!\n');
+
     console.log('  ✅ Suite 10 Passed!\n');
   }
   console.log('  ✅ Suite 6 Passed!\n');
 
   console.log('================================================================');
-  console.log(`🎉 ALL FRONTEND CONTRACT & PHASE 10B EXAM SIMULATOR TESTS PASSED!`);
+  console.log(`🎉 ALL FRONTEND CONTRACT & PHASE 10C.6 REGRESSION TESTS PASSED!`);
   console.log(`✅ Total Passing Assertions: ${passedAssertions} | Failed: ${failedAssertions}`);
   console.log('================================================================');
 }

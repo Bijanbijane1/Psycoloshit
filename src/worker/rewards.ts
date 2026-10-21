@@ -19,19 +19,36 @@
  */
 
 import type { DuolingoStage, Question, StageCompletionRecord } from '../types/psychology.ts';
+import type { BadgeDefinition } from '../types/badges.ts';
 import { SECTION_1_STAGES } from '../data/section1Stages.ts';
 import { CHAPTER_QUESTIONS_RECORD } from '../data/curriculumQuestionsBank.ts';
+import { BADGE_DEFINITIONS } from '../data/badgeDefinitions.ts';
+import { psychologySections } from '../data/psychologyCurriculum.ts';
 
-export type VerifiedRewardType = 'stage_completion' | 'quiz_answer';
+export type VerifiedRewardType =
+  | 'stage_completion'
+  | 'quiz_answer'
+  | 'chapter_completion'
+  | 'pomodoro'
+  | 'badge_unlock';
+
+export const CHAPTER_COMPLETION_XP_REWARD = 20;
+export const MIN_POMODORO_SECONDS = 60;
+export const MAX_POMODORO_SECONDS = 3600;
+export const MIN_POMODORO_MINUTES = 1;
+export const MAX_POMODORO_MINUTES = 60;
 
 export const ALLOWED_REWARD_REASONS = new Set<string>([
   'stage_completion',
   'stage_passed',
   'quiz_answer',
   'quiz_completion',
+  'chapter_completion',
   'exam_completion',
   'daily_streak',
   'badge_unlock',
+  'pomodoro',
+  'study_session',
 ]);
 
 // Build authoritative lookup maps once at module load
@@ -43,6 +60,18 @@ for (const stage of SECTION_1_STAGES) {
 const QUESTION_BY_CHAPTER_AND_ID = new Map<string, Question>();
 const QUESTION_BY_ID = new Map<string, { chapterId: string; question: Question }>();
 
+export const VALID_CURRICULUM_CHAPTER_IDS = new Set<string>(Object.keys(CHAPTER_QUESTIONS_RECORD));
+const SECTION_CHAPTER_IDS_BY_SECTION = new Map<number, string[]>();
+
+for (const section of psychologySections) {
+  const secChapIds: string[] = [];
+  for (const ch of section.chapters) {
+    VALID_CURRICULUM_CHAPTER_IDS.add(ch.id);
+    secChapIds.push(ch.id);
+  }
+  SECTION_CHAPTER_IDS_BY_SECTION.set(section.id, secChapIds);
+}
+
 for (const [chapterId, questions] of Object.entries(CHAPTER_QUESTIONS_RECORD)) {
   for (const q of questions) {
     QUESTION_BY_CHAPTER_AND_ID.set(`${chapterId}:${q.id}`, q);
@@ -53,6 +82,7 @@ for (const [chapterId, questions] of Object.entries(CHAPTER_QUESTIONS_RECORD)) {
 }
 
 for (const stage of SECTION_1_STAGES) {
+  VALID_CURRICULUM_CHAPTER_IDS.add(stage.chapterId);
   for (const q of stage.questions) {
     const key = `${stage.chapterId}:${q.id}`;
     if (!QUESTION_BY_CHAPTER_AND_ID.has(key)) {
@@ -65,9 +95,26 @@ for (const stage of SECTION_1_STAGES) {
 }
 
 export const VALID_USER_ID_REGEX = /^[a-zA-Z0-9_-]{3,64}$/;
+export const VALID_POMODORO_SESSION_ID_REGEX = /^pomo_[a-zA-Z0-9_-]{3,64}$/;
 export const MAX_TOTAL_STUDY_MINUTES = 100_000;
 export const MAX_SINGLE_SYNC_MINUTES_DELTA = 600;
 export const MAX_STREAK_DAYS = 3650;
+
+/**
+ * Canonical Pomodoro XP reward calculation shared across UI, local storage, daily mission, and server ledger.
+ * Preset focus milestones: 15m -> 20 XP, 25m -> 35 XP, 35m -> 50 XP, 45m -> 65 XP.
+ * Any other valid focus duration (1..60m) awards Math.min(65, Math.max(5, Math.round(minutes * 1.4))).
+ */
+export function calculateCanonicalPomodoroXp(minutes: number): number {
+  if (typeof minutes !== 'number' || !Number.isFinite(minutes)) return 0;
+  const rounded = Math.round(minutes);
+  if (rounded < MIN_POMODORO_MINUTES || rounded > MAX_POMODORO_MINUTES) return 0;
+  if (rounded === 15) return 20;
+  if (rounded === 25) return 35;
+  if (rounded === 35) return 50;
+  if (rounded === 45) return 65;
+  return Math.min(65, Math.max(5, Math.round(rounded * 1.4)));
+}
 
 export function isValidUserIdFormat(userId: string): boolean {
   if (!userId || typeof userId !== 'string') return false;
@@ -92,6 +139,18 @@ export function getCanonicalStageIdempotencyKey(stageNumber: number): string {
 
 export function getCanonicalQuizIdempotencyKey(chapterId: string, questionId: string): string {
   return `quiz_answer:${chapterId.trim()}:${questionId.trim()}`;
+}
+
+export function getCanonicalChapterIdempotencyKey(chapterId: string): string {
+  return `chapter_completion:${chapterId.trim()}`;
+}
+
+export function getCanonicalPomodoroIdempotencyKey(sessionId: string): string {
+  const clean = sessionId
+    .trim()
+    .replace(/^pomodoro:/, '')
+    .replace(/^pomo:/, '');
+  return `pomodoro:${clean}`;
 }
 
 export function parseCompletedStageNumberFromKey(idempotencyKey: string | null | undefined): number | null {
@@ -185,12 +244,25 @@ export interface VerifiedRewardResult {
   stageRecord?: StageCompletionRecord;
   chapterId?: string;
   questionId?: string;
+  badgeId?: string;
+  pomodoroMinutes?: number;
 }
 
 export interface RejectedRewardResult {
   ok: false;
   status: number;
   error: string;
+}
+
+export interface RewardVerificationContext {
+  verifiedCompletedStages: Set<number>;
+  verifiedQuizKeys?: Set<string>;
+  userProfile?: {
+    xp?: number;
+    streakDays?: number;
+    completedChapters?: string[];
+    unlockedBadgeIds?: string[];
+  } | null;
 }
 
 export const MIN_STAGE_PASSING_RATIO = 0.6;
@@ -229,11 +301,175 @@ export function buildCanonicalStageAnswers(stageNumber: number): Record<string, 
   return answers;
 }
 
+/**
+ * Verifies whether a user is genuinely eligible on the server for a given badge unlock.
+ * Prevents clients from obtaining arbitrary badge XP merely by submitting valid badge IDs.
+ */
+function verifyServerBadgeEligibility(
+  badge: BadgeDefinition,
+  body: Record<string, unknown>,
+  context: RewardVerificationContext
+): { eligible: boolean; reason?: string } {
+  const verifiedQuizzes = context.verifiedQuizKeys || new Set<string>();
+  const profileChapters = Array.isArray(context.userProfile?.completedChapters)
+    ? context.userProfile!.completedChapters.filter(
+        (c): c is string => typeof c === 'string' && VALID_CURRICULUM_CHAPTER_IDS.has(c.trim())
+      )
+    : [];
+  const completedChapterSet = new Set<string>(profileChapters);
+  const serverXp = typeof context.userProfile?.xp === 'number' ? context.userProfile.xp : 0;
+  const serverStreak =
+    typeof context.userProfile?.streakDays === 'number' ? context.userProfile.streakDays : 1;
+
+  switch (badge.id) {
+    case 'badge-module-1':
+    case 'badge-module-2':
+    case 'badge-module-4':
+    case 'badge-module-9':
+    case 'badge-module-10': {
+      const secId = badge.moduleSectionId || 1;
+      const requiredChapters = SECTION_CHAPTER_IDS_BY_SECTION.get(secId) || [];
+      if (requiredChapters.length === 0) {
+        return { eligible: false, reason: `Section ${secId} has no registered chapters` };
+      }
+      const allChaptersDone = requiredChapters.every((cid) => completedChapterSet.has(cid));
+      if (!allChaptersDone) {
+        return {
+          eligible: false,
+          reason: `Badge '${badge.id}' requires all chapters in section ${secId} to be completed on server`,
+        };
+      }
+      return { eligible: true };
+    }
+
+    case 'badge-all-modules': {
+      let completedSectionsCount = 0;
+      for (const [, secChapIds] of SECTION_CHAPTER_IDS_BY_SECTION.entries()) {
+        if (secChapIds.some((cid) => completedChapterSet.has(cid))) {
+          completedSectionsCount += 1;
+        }
+      }
+      if (completedSectionsCount < badge.targetCount) {
+        return {
+          eligible: false,
+          reason: `Badge '${badge.id}' requires at least ${badge.targetCount} modules with completed chapters (found ${completedSectionsCount})`,
+        };
+      }
+      return { eligible: true };
+    }
+
+    case 'badge-first-quiz':
+    case 'badge-speed-demon': {
+      if (verifiedQuizzes.size < 1) {
+        return {
+          eligible: false,
+          reason: `Badge '${badge.id}' requires at least 1 verified standalone quiz answer in xp_ledger`,
+        };
+      }
+      return { eligible: true };
+    }
+
+    case 'badge-sharpshooter': {
+      if (verifiedQuizzes.size < 3) {
+        return {
+          eligible: false,
+          reason: `Badge '${badge.id}' requires at least 3 verified standalone quiz answers in xp_ledger`,
+        };
+      }
+      return { eligible: true };
+    }
+
+    case 'badge-quiz-5': {
+      if (verifiedQuizzes.size < 5) {
+        return {
+          eligible: false,
+          reason: `Badge '${badge.id}' requires at least 5 verified standalone quiz answers in xp_ledger (found ${verifiedQuizzes.size})`,
+        };
+      }
+      return { eligible: true };
+    }
+
+    case 'badge-quiz-15': {
+      if (verifiedQuizzes.size < 15) {
+        return {
+          eligible: false,
+          reason: `Badge '${badge.id}' requires at least 15 verified standalone quiz answers in xp_ledger (found ${verifiedQuizzes.size})`,
+        };
+      }
+      return { eligible: true };
+    }
+
+    case 'badge-match-master': {
+      let hasVerifiedMatchPairs = false;
+      for (const key of verifiedQuizzes) {
+        const parts = key.split(':');
+        const qId = parts.length >= 3 ? parts.slice(2).join(':') : '';
+        const qEntry = QUESTION_BY_ID.get(qId);
+        if (qEntry && qEntry.question.type === 'match_pairs') {
+          hasVerifiedMatchPairs = true;
+          break;
+        }
+      }
+      if (!hasVerifiedMatchPairs) {
+        return {
+          eligible: false,
+          reason: `Badge '${badge.id}' requires at least 1 verified match_pairs quiz answer in xp_ledger`,
+        };
+      }
+      return { eligible: true };
+    }
+
+    case 'badge-streak-3': {
+      if (serverStreak < 3) {
+        return {
+          eligible: false,
+          reason: `Badge '${badge.id}' requires a verified streak of at least 3 days (current: ${serverStreak})`,
+        };
+      }
+      return { eligible: true };
+    }
+
+    case 'badge-notes-master': {
+      const rawNotes = body.chapterNotes;
+      if (!rawNotes || typeof rawNotes !== 'object' || Array.isArray(rawNotes)) {
+        return {
+          eligible: false,
+          reason: `Badge '${badge.id}' requires chapterNotes for at least 2 valid curriculum chapters`,
+        };
+      }
+      const validNoteChapters = Object.entries(rawNotes as Record<string, unknown>).filter(
+        ([chapId, text]) =>
+          VALID_CURRICULUM_CHAPTER_IDS.has(chapId.trim()) &&
+          typeof text === 'string' &&
+          text.trim().length >= 3
+      );
+      if (validNoteChapters.length < badge.targetCount) {
+        return {
+          eligible: false,
+          reason: `Badge '${badge.id}' requires non-empty notes in at least ${badge.targetCount} valid chapters`,
+        };
+      }
+      return { eligible: true };
+    }
+
+    case 'badge-diamond-champ': {
+      if (serverXp < badge.targetCount) {
+        return {
+          eligible: false,
+          reason: `Badge '${badge.id}' requires at least ${badge.targetCount} server-verified XP (current: ${serverXp})`,
+        };
+      }
+      return { eligible: true };
+    }
+
+    default:
+      return { eligible: false, reason: `Unsupported badge '${badge.id}'` };
+  }
+}
+
 export function verifyRewardSubmission(
   body: Record<string, unknown>,
-  context: {
-    verifiedCompletedStages: Set<number>;
-  }
+  context: RewardVerificationContext
 ): VerifiedRewardResult | RejectedRewardResult {
   if (!body || typeof body !== 'object') {
     return { ok: false, status: 400, error: 'Invalid request body' };
@@ -254,7 +490,212 @@ export function verifyRewardSubmission(
       ? body.reason.trim()
       : '';
 
-  let resolvedType: VerifiedRewardType | null = null;
+  if (rawRewardType === 'badge_unlock' || body.badgeId !== undefined) {
+    const rawBadgeId = String(body.badgeId || body.idempotencyKey || '')
+      .replace(/^badge_unlock:/, '')
+      .trim();
+    const badge = BADGE_DEFINITIONS.find((b) => b.id === rawBadgeId);
+    if (!badge) {
+      return { ok: false, status: 400, error: `Unknown badgeId '${rawBadgeId}'` };
+    }
+    const canonicalAmount = badge.xpReward;
+    if (body.xpEarned !== undefined && Number(body.xpEarned) !== canonicalAmount) {
+      return {
+        ok: false,
+        status: 400,
+        error: `Invalid xpEarned: badge ${badge.id} awards ${canonicalAmount} XP, not ${String(body.xpEarned)}`,
+      };
+    }
+    if (body.amount !== undefined && Number(body.amount) !== canonicalAmount) {
+      return {
+        ok: false,
+        status: 400,
+        error: `Invalid amount: badge ${badge.id} awards ${canonicalAmount} XP`,
+      };
+    }
+
+    const eligibility = verifyServerBadgeEligibility(badge, body, context);
+    if (!eligibility.eligible) {
+      return {
+        ok: false,
+        status: 400,
+        error: eligibility.reason || `Badge eligibility verification failed for '${badge.id}'`,
+      };
+    }
+
+    const canonicalKey = `badge_unlock:${badge.id}`;
+    return {
+      ok: true,
+      rewardType: 'badge_unlock',
+      reason: 'badge_unlock',
+      amount: canonicalAmount,
+      idempotencyKey: canonicalKey,
+      badgeId: badge.id,
+    };
+  }
+
+  if (rawRewardType === 'pomodoro' || rawRewardType === 'study_session') {
+    const rawSessionId = String(
+      body.sessionId || body.eventId || body.attemptId || body.idempotencyKey || ''
+    )
+      .trim()
+      .replace(/^pomodoro:/, '')
+      .replace(/^pomo:/, '');
+
+    if (!rawSessionId || !VALID_POMODORO_SESSION_ID_REGEX.test(rawSessionId)) {
+      return {
+        ok: false,
+        status: 400,
+        error: 'Pomodoro verification failed: a valid sessionId (pomo_*) is required',
+      };
+    }
+
+    const rawChapterId = typeof body.chapterId === 'string' ? body.chapterId.trim() : '';
+    if (!rawChapterId || !VALID_CURRICULUM_CHAPTER_IDS.has(rawChapterId)) {
+      return {
+        ok: false,
+        status: 400,
+        error: 'Pomodoro verification failed: a valid curriculum chapterId is required',
+      };
+    }
+
+    const hasSeconds = body.seconds !== undefined && body.seconds !== null;
+    const hasMinutes = body.minutes !== undefined && body.minutes !== null;
+    if (!hasSeconds && !hasMinutes) {
+      return {
+        ok: false,
+        status: 400,
+        error: 'Pomodoro verification failed: session duration (seconds or minutes) is required',
+      };
+    }
+
+    if (hasSeconds) {
+      const secs = Number(body.seconds);
+      if (!Number.isFinite(secs) || secs < MIN_POMODORO_SECONDS || secs > MAX_POMODORO_SECONDS) {
+        return {
+          ok: false,
+          status: 400,
+          error: `Pomodoro verification failed: seconds must be between ${MIN_POMODORO_SECONDS} and ${MAX_POMODORO_SECONDS}`,
+        };
+      }
+    }
+
+    const resolvedMinutes = hasMinutes
+      ? Number(body.minutes)
+      : Math.round(Number(body.seconds) / 60);
+
+    if (
+      !Number.isInteger(resolvedMinutes) ||
+      resolvedMinutes < MIN_POMODORO_MINUTES ||
+      resolvedMinutes > MAX_POMODORO_MINUTES
+    ) {
+      return {
+        ok: false,
+        status: 400,
+        error: `Pomodoro verification failed: minutes must be an integer between ${MIN_POMODORO_MINUTES} and ${MAX_POMODORO_MINUTES}`,
+      };
+    }
+
+    if (hasSeconds && hasMinutes && Math.round(Number(body.seconds) / 60) !== resolvedMinutes) {
+      return {
+        ok: false,
+        status: 400,
+        error: 'Pomodoro verification failed: seconds and minutes values are inconsistent',
+      };
+    }
+
+    if (body.startedAt !== undefined && body.completedAt !== undefined) {
+      const startMs = new Date(String(body.startedAt)).getTime();
+      const endMs = new Date(String(body.completedAt)).getTime();
+      const requiredDurationMs = resolvedMinutes * 60 * 1000 - 5000;
+      if (
+        !Number.isFinite(startMs) ||
+        !Number.isFinite(endMs) ||
+        endMs > Date.now() + 60_000 ||
+        endMs - startMs < requiredDurationMs
+      ) {
+        return {
+          ok: false,
+          status: 400,
+          error: 'Pomodoro verification failed: elapsed timestamps do not match claimed session duration',
+        };
+      }
+    }
+
+    const canonicalAmount = calculateCanonicalPomodoroXp(resolvedMinutes);
+    if (canonicalAmount <= 0) {
+      return {
+        ok: false,
+        status: 400,
+        error: 'Pomodoro verification failed: session duration does not qualify for XP',
+      };
+    }
+
+    if (body.xpEarned !== undefined && Number(body.xpEarned) !== canonicalAmount) {
+      return {
+        ok: false,
+        status: 400,
+        error: `Invalid xpEarned: ${resolvedMinutes}-minute Pomodoro awards ${canonicalAmount} XP, not ${String(body.xpEarned)}`,
+      };
+    }
+    if (body.amount !== undefined && Number(body.amount) !== canonicalAmount) {
+      return {
+        ok: false,
+        status: 400,
+        error: `Invalid amount: ${resolvedMinutes}-minute Pomodoro awards ${canonicalAmount} XP`,
+      };
+    }
+
+    const canonicalKey = getCanonicalPomodoroIdempotencyKey(rawSessionId);
+    return {
+      ok: true,
+      rewardType: 'pomodoro',
+      reason: 'pomodoro',
+      amount: canonicalAmount,
+      idempotencyKey: canonicalKey,
+      chapterId: rawChapterId,
+      pomodoroMinutes: resolvedMinutes,
+    };
+  }
+
+  if (rawRewardType === 'chapter_completion') {
+    const rawChapterId = typeof body.chapterId === 'string' ? body.chapterId.trim() : '';
+    if (!rawChapterId || !VALID_CURRICULUM_CHAPTER_IDS.has(rawChapterId)) {
+      return {
+        ok: false,
+        status: 400,
+        error: 'Chapter completion verification failed: a valid curriculum chapterId is required',
+      };
+    }
+
+    const canonicalAmount = CHAPTER_COMPLETION_XP_REWARD;
+    if (body.xpEarned !== undefined && Number(body.xpEarned) !== canonicalAmount) {
+      return {
+        ok: false,
+        status: 400,
+        error: `Invalid xpEarned: chapter completion awards ${canonicalAmount} XP, not ${String(body.xpEarned)}`,
+      };
+    }
+    if (body.amount !== undefined && Number(body.amount) !== canonicalAmount) {
+      return {
+        ok: false,
+        status: 400,
+        error: `Invalid amount: chapter completion awards ${canonicalAmount} XP`,
+      };
+    }
+
+    const canonicalKey = getCanonicalChapterIdempotencyKey(rawChapterId);
+    return {
+      ok: true,
+      rewardType: 'chapter_completion',
+      reason: 'chapter_completion',
+      amount: canonicalAmount,
+      idempotencyKey: canonicalKey,
+      chapterId: rawChapterId,
+    };
+  }
+
+  let resolvedType: 'stage_completion' | 'quiz_answer' | null = null;
   if (rawRewardType === 'stage_completion') {
     resolvedType = 'stage_completion';
   } else if (rawRewardType === 'quiz_answer' || rawRewardType === 'quiz_completion') {

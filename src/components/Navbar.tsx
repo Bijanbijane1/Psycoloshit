@@ -3,17 +3,32 @@ import {
   Home,
   Compass,
   Zap,
-  Sparkles,
   User,
   Flame,
   Search,
   Volume2,
   VolumeX,
+  Brain,
+  Users,
+  Scale,
+  Palette,
+  BookOpen,
+  GraduationCap,
+  Landmark,
+  ChevronDown,
+  Plus,
+  Check,
 } from 'lucide-react';
 import { getAudioMuted, toggleAudioMuted, playDuoSound } from '../utils/duoAudio';
 import { PWAInstallButton } from './PWAInstallButton';
 import { useAuth } from '../context/AuthContext';
 import { toPersianDigits } from '../utils/persianDigits';
+import { LearningDisciplineId, LearningDisciplineDefinition } from '../types/psychology';
+import {
+  LEARNING_DISCIPLINES,
+  DEFAULT_LEARNING_DISCIPLINE_ID,
+  getDisciplineDefinition,
+} from '../utils/storage';
 
 export type AppPrimaryTab =
   | 'dashboard'
@@ -29,16 +44,45 @@ export type AppPrimaryTab =
 interface NavbarProps {
   activeTab: AppPrimaryTab;
   setActiveTab: (tab: AppPrimaryTab) => void;
+  activeDiscipline?: LearningDisciplineId;
+  onSelectDiscipline?: (disciplineId: LearningDisciplineId) => void;
   onOpenSearch: () => void;
   onOpenSettings: () => void;
   onOpenSourceCode?: () => void;
   onOpenPomodoro?: () => void;
   onOpenTrafficAnalytics?: () => void;
   streakDays: number;
+  totalXp?: number;
+  soundEnabled?: boolean;
+  onToggleSound?: (nextSoundEnabled: boolean) => void;
   unlockedBadgeCount?: number;
   onlineCount?: number;
   isOffline?: boolean;
   isSyncingCloud?: boolean;
+}
+
+export function renderDisciplineIcon(
+  iconName: LearningDisciplineDefinition['iconName'],
+  className = 'w-4 h-4'
+): React.ReactNode {
+  switch (iconName) {
+    case 'brain':
+      return <Brain className={className} />;
+    case 'users':
+      return <Users className={className} />;
+    case 'scale':
+      return <Scale className={className} />;
+    case 'palette':
+      return <Palette className={className} />;
+    case 'book-open':
+      return <BookOpen className={className} />;
+    case 'graduation-cap':
+      return <GraduationCap className={className} />;
+    case 'landmark':
+      return <Landmark className={className} />;
+    default:
+      return <Brain className={className} />;
+  }
 }
 
 /**
@@ -83,27 +127,87 @@ const PsychologyStudioEmblem: React.FC<{ size?: number }> = ({ size = 36 }) => (
 export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   setActiveTab,
+  activeDiscipline = DEFAULT_LEARNING_DISCIPLINE_ID,
+  onSelectDiscipline,
   onOpenSearch,
   streakDays,
+  totalXp,
+  soundEnabled,
+  onToggleSound,
   isOffline = false,
   isSyncingCloud = false,
 }) => {
   const { currentUser, isAuthenticated, openGoogleSignInModal, setIsAccountModalOpen } = useAuth();
-  const [isAudioMuted, setIsAudioMuted] = React.useState<boolean>(getAudioMuted);
+  const [isAudioMuted, setIsAudioMuted] = React.useState<boolean>(() =>
+    typeof soundEnabled === 'boolean' ? !soundEnabled : getAudioMuted()
+  );
+  const [isDisciplineMenuOpen, setIsDisciplineMenuOpen] = React.useState<boolean>(false);
+  const disciplineMenuContainerRef = React.useRef<HTMLDivElement | null>(null);
+
+  const activeDisciplineMeta = React.useMemo(
+    () => getDisciplineDefinition(activeDiscipline),
+    [activeDiscipline]
+  );
+
+  React.useEffect(() => {
+    if (!isDisciplineMenuOpen) return;
+
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (
+        disciplineMenuContainerRef.current &&
+        !disciplineMenuContainerRef.current.contains(event.target as Node)
+      ) {
+        setIsDisciplineMenuOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsDisciplineMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isDisciplineMenuOpen]);
+
+  React.useEffect(() => {
+    if (typeof soundEnabled === 'boolean') {
+      setIsAudioMuted(!soundEnabled);
+    }
+  }, [soundEnabled]);
+
+  React.useEffect(() => {
+    const handleMuteEvent = (e: Event) => {
+      const detail = (e as CustomEvent<{ muted: boolean; soundEnabled: boolean }>).detail;
+      if (detail && typeof detail.muted === 'boolean') {
+        setIsAudioMuted(detail.muted);
+      } else {
+        setIsAudioMuted(getAudioMuted());
+      }
+    };
+    window.addEventListener('psychomaster:audio-mute-changed', handleMuteEvent);
+    return () => window.removeEventListener('psychomaster:audio-mute-changed', handleMuteEvent);
+  }, []);
 
   const handleToggleMute = () => {
-    const next = toggleAudioMuted();
-    setIsAudioMuted(next);
-    if (!next) {
-      playDuoSound('click');
-    }
+    const nextMuted = toggleAudioMuted();
+    setIsAudioMuted(nextMuted);
+    onToggleSound?.(!nextMuted);
   };
 
-  // Resolve legacy sub-tabs to their parent primary destination
-  const resolvedPrimaryTab: 'dashboard' | 'learning' | 'quiz' | 'support' | 'profile' =
-    activeTab === 'book' || activeTab === 'notes'
+  // Resolve secondary and legacy sub-tabs to their parent primary destination
+  const resolvedPrimaryTab: 'dashboard' | 'learning' | 'quiz' | 'profile' =
+    activeTab === 'book'
       ? 'learning'
-      : activeTab === 'analytics' || activeTab === 'badges'
+      : activeTab === 'analytics' ||
+        activeTab === 'badges' ||
+        activeTab === 'notes' ||
+        activeTab === 'support'
       ? 'profile'
       : activeTab;
 
@@ -122,7 +226,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     {
       id: 'learning' as const,
       label: 'یادگیری',
-      desktopLabel: 'یادگیری و دروس',
+      desktopLabel: 'یادگیری',
       icon: Compass,
       activeClass: 'bg-[#DDF3E9] border-[#149D9A]/40 text-[#134E4A]',
       iconClass: 'text-[#149D9A]',
@@ -132,8 +236,8 @@ export const Navbar: React.FC<NavbarProps> = ({
     },
     {
       id: 'quiz' as const,
-      label: 'آزمون',
-      desktopLabel: 'مرکز آزمون',
+      label: 'آزمونها',
+      desktopLabel: 'آزمونها',
       icon: Zap,
       activeClass: 'bg-[#E1ECFF] border-[#3976E4]/40 text-[#1E3A8A]',
       iconClass: 'text-[#3976E4]',
@@ -142,20 +246,9 @@ export const Navbar: React.FC<NavbarProps> = ({
       mobileIconColor: 'text-[#3976E4]',
     },
     {
-      id: 'support' as const,
-      label: 'استاد راهنما',
-      desktopLabel: 'استاد راهنما',
-      icon: Sparkles,
-      activeClass: 'bg-[#FBE2ED] border-[#D85B89]/40 text-[#701A3C]',
-      iconClass: 'text-[#D85B89]',
-      mobileTint: 'bg-[#FBE2ED]',
-      mobileText: 'text-[#701A3C]',
-      mobileIconColor: 'text-[#D85B89]',
-    },
-    {
       id: 'profile' as const,
-      label: 'پنل کاربری',
-      desktopLabel: 'پنل کاربری',
+      label: 'پنل من',
+      desktopLabel: 'پنل من',
       icon: User,
       activeClass: 'bg-[#FFF0C8] border-[#E5A33D]/50 text-[#5C3D0E]',
       iconClass: 'text-[#C98A27]',
@@ -165,7 +258,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     },
   ];
 
-  const userXp = currentUser?.xp ?? 0;
+  const userXp = Math.max(totalXp ?? 0, currentUser?.xp ?? 0);
 
   return (
     <>
@@ -174,25 +267,127 @@ export const Navbar: React.FC<NavbarProps> = ({
       {/* ============================================================== */}
       <header className="sticky top-0 z-40 glass-header select-none">
         <div className="max-w-6xl mx-auto px-3.5 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16 gap-3">
-            {/* Zone 1: Brand Identity */}
-            <button
-              onClick={() => {
-                playDuoSound('click');
-                setActiveTab('dashboard');
-              }}
-              className="flex items-center gap-2.5 cursor-pointer text-right shrink-0 min-h-[44px] group"
-            >
-              <PsychologyStudioEmblem size={38} />
-              <div className="flex flex-col">
-                <span className="text-base sm:text-lg font-black text-[#24243B] tracking-tight leading-none whitespace-nowrap">
-                  روان‌مستر
-                </span>
-                <span className="hidden sm:inline text-[11px] font-medium text-[#69697E] mt-1 whitespace-nowrap">
-                  پلتفرم آموزش و کنکور روان‌شناسی
-                </span>
+          <div className="flex items-center justify-between h-16 gap-2 sm:gap-3">
+            {/* Zone 1: Brand Identity + Compact Discipline Switcher */}
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+              <button
+                onClick={() => {
+                  playDuoSound('click');
+                  setActiveTab('dashboard');
+                }}
+                className="flex items-center gap-2 cursor-pointer text-right shrink-0 min-h-[44px] group"
+              >
+                <PsychologyStudioEmblem size={36} />
+                <div className="flex flex-col">
+                  <span className="text-sm sm:text-lg font-black text-[#24243B] tracking-tight leading-none whitespace-nowrap">
+                    روان‌مستر
+                  </span>
+                  <span className="hidden md:inline text-[11px] font-medium text-[#69697E] mt-1 whitespace-nowrap">
+                    پلتفرم آموزش و کنکور روان‌شناسی
+                  </span>
+                </div>
+              </button>
+
+              {/* Compact Header Learning-Domain Selector & Switch/Add Control */}
+              <div
+                ref={disciplineMenuContainerRef}
+                className="relative"
+                data-testid="navbar-discipline-switcher"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    playDuoSound('click');
+                    setIsDisciplineMenuOpen((prev) => !prev);
+                  }}
+                  aria-haspopup="listbox"
+                  aria-expanded={isDisciplineMenuOpen}
+                  aria-label={`حوزه یادگیری فعال: ${activeDisciplineMeta.label} — تغییر یا افزودن حوزه`}
+                  title={`حوزه فعال: ${activeDisciplineMeta.label} (تغییر یا افزودن حوزه یادگیری)`}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-[#E5E1EB] hover:border-[#7056D8] bg-white text-[#24243B] transition-colors cursor-pointer min-h-[44px] shrink-0"
+                >
+                  <span
+                    className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${activeDisciplineMeta.palette.badgeBg} ${activeDisciplineMeta.palette.iconColor}`}
+                  >
+                    {renderDisciplineIcon(activeDisciplineMeta.iconName, 'w-3.5 h-3.5')}
+                  </span>
+                  <span className="text-xs font-extrabold text-[#24243B] whitespace-nowrap">
+                    {activeDisciplineMeta.label}
+                  </span>
+                  <span
+                    className="inline-flex items-center justify-center w-4 h-4 rounded-md bg-[#F7F5F0] text-[#69697E]"
+                    aria-hidden="true"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </span>
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 text-[#69697E] transition-transform duration-200 ${
+                      isDisciplineMenuOpen ? 'rotate-180 text-[#24243B]' : ''
+                    }`}
+                    aria-hidden="true"
+                  />
+                </button>
+
+                {isDisciplineMenuOpen && (
+                  <div
+                    role="listbox"
+                    aria-label="انتخاب یا افزودن حوزه یادگیری"
+                    className="absolute right-0 mt-2 w-64 sm:w-72 rounded-2xl bg-white border border-[#E5E1EB] shadow-lg p-2 z-50 text-right"
+                  >
+                    <div className="px-2.5 py-1.5 border-b border-[#E5E1EB] mb-1">
+                      <span className="text-[11px] font-extrabold text-[#24243B] block">
+                        تغییر یا افزودن حوزه یادگیری
+                      </span>
+                      <span className="text-[10px] text-[#69697E] block mt-0.5">
+                        پیشرفت و امتیاز شما در تمام حوزه‌ها حفظ می‌شود
+                      </span>
+                    </div>
+
+                    <div className="space-y-1 max-h-80 overflow-y-auto">
+                      {LEARNING_DISCIPLINES.map((discipline) => {
+                        const isSelected = discipline.id === activeDisciplineMeta.id;
+                        return (
+                          <button
+                            key={discipline.id}
+                            type="button"
+                            role="option"
+                            aria-selected={isSelected}
+                            onClick={() => {
+                              playDuoSound('click');
+                              onSelectDiscipline?.(discipline.id);
+                              setIsDisciplineMenuOpen(false);
+                            }}
+                            className={`w-full flex items-center justify-between gap-2.5 px-2.5 py-2 rounded-xl text-xs transition-colors cursor-pointer min-h-[44px] ${
+                              isSelected
+                                ? 'bg-[#EAE4FF]/70 text-[#24243B] font-extrabold border border-[#7056D8]/30'
+                                : 'text-[#24243B] hover:bg-[#F7F5F0] font-bold border border-transparent'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <span
+                                className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${discipline.palette.badgeBg} ${discipline.palette.iconColor}`}
+                              >
+                                {renderDisciplineIcon(discipline.iconName, 'w-4 h-4')}
+                              </span>
+                              <div className="truncate text-right">
+                                <span className="block truncate">{discipline.label}</span>
+                                <span className="text-[10px] font-medium text-[#69697E] block truncate">
+                                  {discipline.hasCurriculum ? 'سرفصل کامل فعال' : 'در حال تدوین سرفصل'}
+                                </span>
+                              </div>
+                            </div>
+
+                            {isSelected && (
+                              <Check className="w-4 h-4 text-[#7056D8] shrink-0" aria-hidden="true" />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
-            </button>
+            </div>
 
             {/* Zone 2: Desktop 5-Destination Primary Navigation (>= lg viewports) */}
             <nav
@@ -296,10 +491,12 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <Search className="w-4 h-4" />
               </button>
 
-              {/* Audio Mute Toggle (Desktop) */}
+              {/* Audio Mute Toggle */}
               <button
+                type="button"
+                aria-pressed={!isAudioMuted}
                 onClick={handleToggleMute}
-                className={`hidden md:flex p-2 rounded-xl transition-colors cursor-pointer border min-w-[44px] min-h-[44px] items-center justify-center ${
+                className={`flex p-2 rounded-xl transition-colors cursor-pointer border min-w-[44px] min-h-[44px] items-center justify-center ${
                   isAudioMuted
                     ? 'bg-[#F7F5F0] border-[#E5E1EB] text-[#69697E]'
                     : 'bg-white border-[#E5E1EB] text-[#24243B]'
@@ -383,56 +580,54 @@ export const Navbar: React.FC<NavbarProps> = ({
       </header>
 
       {/* ============================================================== */}
-      {/* 2. MOBILE 5-DESTINATION BOTTOM NAVIGATION BAR (< lg viewports) */}
+      {/* 2. MOBILE 4-DESTINATION BOTTOM NAVIGATION BAR (< lg viewports) */}
       {/* ============================================================== */}
-      {activeTab !== 'quiz' && (
-        <nav
-          aria-label="ناوبری موبایل"
-          className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#FFFFFF]/96 backdrop-blur-md border-t border-[#E5E1EB] pb-safe select-none touch-manipulation"
-        >
-          <div className="grid grid-cols-5 items-center h-16 max-w-lg mx-auto px-1.5">
-            {primaryDestinations.map((tab) => {
-              const isActive = resolvedPrimaryTab === tab.id;
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => {
-                    playDuoSound('click');
-                    setActiveTab(tab.id);
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
-                  }}
-                  className={`flex flex-col items-center justify-center h-full min-h-[48px] py-1 cursor-pointer transition-colors relative select-none ${
-                    isActive ? tab.mobileText : 'text-[#69697E] hover:text-[#24243B]'
+      <nav
+        aria-label="ناوبری موبایل"
+        className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#FFFFFF]/96 backdrop-blur-md border-t border-[#E5E1EB] pb-safe select-none touch-manipulation"
+      >
+        <div className="grid grid-cols-4 items-center h-16 max-w-lg mx-auto px-2">
+          {primaryDestinations.map((tab) => {
+            const isActive = resolvedPrimaryTab === tab.id;
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  playDuoSound('click');
+                  setActiveTab(tab.id);
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className={`flex flex-col items-center justify-center h-full min-h-[48px] py-1 cursor-pointer transition-colors relative select-none ${
+                  isActive ? tab.mobileText : 'text-[#69697E] hover:text-[#24243B]'
+                }`}
+                aria-current={isActive ? 'page' : undefined}
+              >
+                <div
+                  className={`w-12 h-7 rounded-xl flex items-center justify-center transition-colors ${
+                    isActive ? tab.mobileTint : 'bg-transparent'
                   }`}
-                  aria-current={isActive ? 'page' : undefined}
                 >
-                  <div
-                    className={`w-11 h-7 rounded-xl flex items-center justify-center transition-colors ${
-                      isActive ? tab.mobileTint : 'bg-transparent'
+                  <Icon
+                    className={`w-4 h-4 ${
+                      isActive ? `${tab.mobileIconColor} stroke-[2.25]` : 'text-[#69697E]'
                     }`}
-                  >
-                    <Icon
-                      className={`w-4 h-4 ${
-                        isActive ? `${tab.mobileIconColor} stroke-[2.25]` : 'text-[#69697E]'
-                      }`}
-                    />
-                  </div>
-                  <span
-                    className={`text-[10px] mt-0.5 tracking-tight whitespace-nowrap ${
-                      isActive
-                        ? `${tab.mobileText} font-extrabold`
-                        : 'text-[#69697E] font-medium'
-                    }`}
-                  >
-                    {tab.label}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </nav>
-      )}
+                  />
+                </div>
+                <span
+                  className={`text-[11px] mt-0.5 tracking-tight whitespace-nowrap ${
+                    isActive
+                      ? `${tab.mobileText} font-extrabold`
+                      : 'text-[#69697E] font-medium'
+                  }`}
+                >
+                  {tab.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </nav>
     </>
   );
 };

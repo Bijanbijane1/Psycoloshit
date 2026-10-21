@@ -1,5 +1,39 @@
 export type DifficultyLevel = 'basic' | 'intermediate' | 'advanced';
 
+export type LearningDisciplineId =
+  | 'psychology'
+  | 'sociology'
+  | 'law'
+  | 'art'
+  | 'philosophy'
+  | 'entrance_exam'
+  | 'politics';
+
+export interface LearningDisciplineDefinition {
+  id: LearningDisciplineId;
+  label: string;
+  englishLabel: string;
+  deskTitle: string;
+  subtitle: string;
+  upcomingSummary: string;
+  iconName:
+    | 'brain'
+    | 'users'
+    | 'scale'
+    | 'palette'
+    | 'book-open'
+    | 'graduation-cap'
+    | 'landmark';
+  hasCurriculum: boolean;
+  palette: {
+    activeBg: string;
+    activeText: string;
+    activeBorder: string;
+    badgeBg: string;
+    iconColor: string;
+  };
+}
+
 export type QuestionType =
   | 'multiple_choice'
   | 'fill_blank'
@@ -146,6 +180,20 @@ export interface UserProgress {
   pinnedChapters: string[];
   unlockedBadgeIds?: string[];
   claimedBadgeIds?: string[];
+  rewardedChapterIds?: string[]; // chapter ids that have already granted their one-time completion XP
+  diamonds?: number; // User diamond currency balance (default 480)
+  totalXp?: number; // Authoritative cumulative XP persisted locally
+  dailyXp?: number; // XP earned on dailyMissionDate
+  dailyTargetXp?: number; // Daily XP mission goal (default 50)
+  dailyMissionDate?: string; // ISO date string (YYYY-MM-DD) for daily mission tracking
+  dailyMissionCompleted?: boolean; // Whether the daily XP mission has been completed today
+  pomodoroHistory?: {
+    id: string;
+    chapterId: string;
+    minutes: number;
+    xpEarned?: number;
+    completedAt: string;
+  }[];
   // 100-Stage Duolingo System
   completedStages?: Record<number, StageCompletionRecord>; // stageNumber -> record
   claimedStageChests?: number[]; // milestone stage numbers claimed

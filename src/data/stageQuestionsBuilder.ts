@@ -35,6 +35,9 @@ export function generateStageQuestions(stageNumber: number, bp: BlueprintForBuil
     matchPairs: bp.q1.matchPairs,
     blankContext: bp.q1.blankContext,
     isTrue: bp.q1.isTrue,
+    sentenceTokens: bp.q1.sentenceTokens,
+    correctSentence: bp.q1.correctSentence,
+    caseScenario: bp.q1.caseScenario,
     difficulty: 'basic',
     points: 10,
   });
@@ -51,6 +54,9 @@ export function generateStageQuestions(stageNumber: number, bp: BlueprintForBuil
     matchPairs: bp.q2.matchPairs,
     blankContext: bp.q2.blankContext,
     isTrue: bp.q2.isTrue,
+    sentenceTokens: bp.q2.sentenceTokens,
+    correctSentence: bp.q2.correctSentence,
+    caseScenario: bp.q2.caseScenario,
     difficulty: 'basic',
     points: 10,
   });

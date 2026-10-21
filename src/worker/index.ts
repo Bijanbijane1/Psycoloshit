@@ -998,7 +998,21 @@ export default {
         }
 
         const verifiedCompletedStages = await userRepo.getVerifiedCompletedStageNumbers(userId);
-        const verification = verifyRewardSubmission(body, { verifiedCompletedStages });
+        const verifiedQuizKeys =
+          (typeof body.rewardType === 'string' && body.rewardType.trim() === 'badge_unlock') ||
+          (typeof body.reason === 'string' && body.reason.trim() === 'badge_unlock')
+            ? await userRepo.getVerifiedQuizIdempotencyKeys(userId)
+            : undefined;
+        const verification = verifyRewardSubmission(body, {
+          verifiedCompletedStages,
+          verifiedQuizKeys,
+          userProfile: {
+            xp: existing.xp,
+            streakDays: existing.streakDays,
+            completedChapters: existing.completedChapters,
+            unlockedBadgeIds: existing.unlockedBadgeIds,
+          },
+        });
         if (!verification.ok) {
           return new Response(
             JSON.stringify({ error: verification.error }),
@@ -1015,6 +1029,9 @@ export default {
           amount: verification.amount,
           reason: verification.reason,
           stageRecord: verification.stageRecord,
+          chapterId: verification.chapterId,
+          badgeId: verification.badgeId,
+          pomodoroMinutes: verification.pomodoroMinutes,
           streakDays: typeof body.streakDays === 'number' ? body.streakDays : undefined,
           name: typeof body.name === 'string' ? body.name : undefined,
           avatar: typeof body.avatar === 'string' ? body.avatar : undefined,
@@ -1025,6 +1042,7 @@ export default {
             success: true,
             applied: awardResult.applied,
             alreadyProcessed: awardResult.alreadyProcessed,
+            alreadyClaimed: awardResult.alreadyProcessed,
             awardedXp: awardResult.applied ? verification.amount : 0,
             updatedXp: awardResult.updatedXp,
             profile: awardResult.profile,

@@ -115,6 +115,37 @@ export const DuolingoStageModal: React.FC<DuolingoStageModalProps> = ({
 // =========================================================================
 // ACTIVE STAGE LESSON & QUIZ PLAYER (Editorial Studio Experience)
 // =========================================================================
+export function resolveStageAttemptDisplayReward(params: {
+  stageXpReward: number;
+  wasAlreadyCompleted: boolean;
+  rewardResult?: { alreadyClaimed?: boolean; xpAwarded?: number } | null;
+}): {
+  isReplayMode: boolean;
+  displayedXpAwarded: number;
+  badgeLabel: string;
+  statusNote: string | null;
+} {
+  const isReplayMode = Boolean(params.wasAlreadyCompleted || params.rewardResult?.alreadyClaimed);
+  if (isReplayMode) {
+    return {
+      isReplayMode: true,
+      displayedXpAwarded: 0,
+      badgeLabel: 'حالت تمرین (۰ XP جدید)',
+      statusNote: 'امتیاز این مرحله قبلاً ثبت شده است (حالت تمرین)',
+    };
+  }
+  const xp =
+    typeof params.rewardResult?.xpAwarded === 'number'
+      ? params.rewardResult.xpAwarded
+      : params.stageXpReward;
+  return {
+    isReplayMode: false,
+    displayedXpAwarded: xp,
+    badgeLabel: `+${toPersianDigits(xp)} XP امتیاز`,
+    statusNote: null,
+  };
+}
+
 interface DuolingoStagePlayerProps {
   stage: DuolingoStage;
   previousStageVerified?: boolean;
@@ -142,6 +173,9 @@ const DuolingoStagePlayer: React.FC<DuolingoStagePlayerProps> = ({
   const [isStageFinished, setIsStageFinished] = useState<boolean>(false);
   const [scoreCount, setScoreCount] = useState<number>(0);
   const [isHintOpen, setIsHintOpen] = useState<boolean>(false);
+
+  // Capture whether stage was already completed BEFORE this attempt started so replays always show 0 new XP
+  const wasAlreadyCompletedBeforeAttemptRef = useRef<boolean>(Boolean(existingRecord));
 
   // Attempt-scoped idempotency key for deterministic replay safety (Task 1B)
   const attemptIdempotencyKeyRef = useRef<string>(
@@ -1080,8 +1114,8 @@ const DuolingoStagePlayer: React.FC<DuolingoStagePlayerProps> = ({
                     </div>
                   )}
 
-                  {/* Neutral Practice Mode Info when alreadyClaimed: true (Task 1B) */}
-                  {rewardResult?.alreadyClaimed && (
+                  {/* Neutral Practice Mode Info when alreadyClaimed or replaying a completed stage (Task 1B) */}
+                  {(wasAlreadyCompletedBeforeAttemptRef.current || rewardResult?.alreadyClaimed) && (
                     <div className="px-3.5 py-2 rounded-xl bg-[#F7F5F0] border border-[#E5E1EB] text-[#69697E] text-xs font-bold">
                       امتیاز این مرحله قبلاً ثبت شده است (حالت تمرین)
                     </div>
@@ -1138,9 +1172,13 @@ const DuolingoStagePlayer: React.FC<DuolingoStagePlayerProps> = ({
                   <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#FFF0C8]/75 border border-[#F59E0B]/30 text-[#92400E]">
                     <Zap className="w-4 h-4 fill-[#F59E0B] text-[#D97706]" />
                     <span>
-                      {rewardResult?.alreadyClaimed
-                        ? 'حالت تمرین (۰ XP جدید)'
-                        : `+${toPersianDigits(rewardResult?.xpAwarded ?? stage.xpReward)} XP امتیاز`}
+                      {
+                        resolveStageAttemptDisplayReward({
+                          stageXpReward: stage.xpReward,
+                          wasAlreadyCompleted: wasAlreadyCompletedBeforeAttemptRef.current,
+                          rewardResult,
+                        }).badgeLabel
+                      }
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#DDF7F2]/75 border border-[#169E6C]/30 text-[#064E3B]">

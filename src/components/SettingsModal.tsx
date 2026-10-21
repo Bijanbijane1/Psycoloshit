@@ -205,9 +205,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
             <button
+              type="button"
+              aria-pressed={Boolean(customSettings.soundEnabled)}
               onClick={() => {
-                playDuoSound('click');
-                onUpdateSettings({ soundEnabled: !customSettings.soundEnabled });
+                const nextEnabled = !customSettings.soundEnabled;
+                onUpdateSettings({ soundEnabled: nextEnabled });
+                if (nextEnabled) {
+                  playDuoSound('click');
+                }
               }}
               className={`px-3 py-1.5 rounded-xl text-xs font-black cursor-pointer transition-all ${
                 customSettings.soundEnabled ? 'duo-btn-green' : 'duo-btn-white text-slate-400'

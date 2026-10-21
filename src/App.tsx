@@ -1,9 +1,34 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { psychologySections } from './data/psychologyCurriculum';
-import { Chapter, UserProgress, SupportTicket, DifficultyLevel, StageCompletionRecord } from './types/psychology';
+import {
+  Chapter,
+  UserProgress,
+  SupportTicket,
+  DifficultyLevel,
+  StageCompletionRecord,
+  LearningDisciplineId,
+} from './types/psychology';
 import { BadgeDefinition } from './types/badges';
-import { getAllBadgeProgress, findNewlyUnlockedBadges } from './data/badgeDefinitions';
-import { loadUserProgress, saveUserProgress, loadSupportTickets, saveSupportTickets, getDefaultUserProgress, mergeCompletedStages } from './utils/storage';
+import { getAllBadgeProgress } from './data/badgeDefinitions';
+import {
+  loadUserProgress,
+  saveUserProgress,
+  loadSupportTickets,
+  saveSupportTickets,
+  getDefaultUserProgress,
+  calculateAuthoritativeUserXp,
+  recordDailyXpActivity,
+  applyStandaloneQuizAnswerToProgress,
+  applyStageCompletionToProgress,
+  applyChapterCompletionToggleToProgress,
+  applyBadgeUnlocksToProgress,
+  reconcileUserProgressWithSyncedProfile,
+  claimStageChestReward,
+  recordPomodoroSessionCompletion,
+  loadActiveDiscipline,
+  saveActiveDiscipline,
+} from './utils/storage';
+import { setSoundEnabled } from './utils/duoAudio';
 import { Navbar, AppPrimaryTab } from './components/Navbar';
 import { DashboardView } from './components/DashboardView';
 import { LearningView, LearningSubMode } from './components/LearningView';
@@ -18,6 +43,7 @@ import { AdvancedSearchModal } from './components/AdvancedSearchModal';
 import { SettingsModal } from './components/SettingsModal';
 import { NotebookView } from './components/NotebookView';
 import { SourceCodeModal } from './components/SourceCodeModal';
+import { stageExecutionEngine } from './services/stageExecutionEngine';
 import { StageExecutionProvider } from './context/StageExecutionContext';
 import { PomodoroTimerModal } from './components/PomodoroTimerModal';
 import { SiteTrafficAnalyticsModal } from './components/SiteTrafficAnalyticsModal';
@@ -34,6 +60,9 @@ import { GuestMergeModal } from './components/GuestMergeModal';
 
 function AppContent() {
   const [activeTab, setActiveTab] = useState<AppPrimaryTab>('dashboard');
+  const [activeDiscipline, setActiveDiscipline] = useState<LearningDisciplineId>(() =>
+    loadActiveDiscipline()
+  );
   const [learningSubMode, setLearningSubMode] = useState<LearningSubMode>('stages_100');
   const [userPanelSubView, setUserPanelSubView] = useState<UserPanelSubView>('overview');
 
@@ -69,52 +98,19 @@ function AppContent() {
 
       setProgress((prev) => {
         const base = isSwitchingUser ? loadUserProgress(currentUser.userId) : prev;
-        const mergedChapters = Array.from(
-          new Set([...(base.completedChapters || []), ...(currentUser.completedChapters || [])])
-        );
-        const mergedBookmarks = Array.from(
-          new Set([...(base.bookmarkedChapters || []), ...(currentUser.bookmarkedChapters || [])])
-        );
-        const mergedStages = mergeCompletedStages(
-          base.completedStages,
-          (currentUser.completedStages as Record<string, StageCompletionRecord>) || null
-        );
-        const mergedBadges = Array.from(
-          new Set([...(base.unlockedBadgeIds || []), ...(currentUser.unlockedBadgeIds || [])])
-        );
-        return {
-          ...base,
-          completedChapters: mergedChapters,
-          bookmarkedChapters: mergedBookmarks,
-          completedStages: mergedStages,
-          unlockedBadgeIds: mergedBadges,
-          streakDays: Math.max(base.streakDays || 1, currentUser.streakDays || 1),
-          totalStudyMinutes: Math.max(base.totalStudyMinutes || 0, currentUser.totalStudyMinutes || 0),
-        };
+        return reconcileUserProgressWithSyncedProfile(base, currentUser);
       });
     }
   }, [currentUser]);
 
-  // Hydrate server-verified completedStages whenever `/api/user/sync` or `/api/leaderboard/submit` completes
+  // Reconcile server-verified profile fields whenever `/api/user/sync` or `/api/leaderboard/submit` completes
   useEffect(() => {
     const handleUserSynced = (e: Event) => {
       const customEvent = e as CustomEvent<any>;
       const syncedProfile = customEvent.detail;
-      if (!syncedProfile || !syncedProfile.completedStages) return;
+      if (!syncedProfile || typeof syncedProfile !== 'object') return;
 
-      setProgress((prev) => {
-        const mergedStages = mergeCompletedStages(
-          prev.completedStages,
-          syncedProfile.completedStages
-        );
-        const prevJson = JSON.stringify(prev.completedStages || {});
-        const nextJson = JSON.stringify(mergedStages);
-        if (prevJson === nextJson) return prev;
-        return {
-          ...prev,
-          completedStages: mergedStages,
-        };
-      });
+      setProgress((prev) => reconcileUserProgressWithSyncedProfile(prev, syncedProfile));
     };
 
     window.addEventListener('psychomaster:user-synced', handleUserSynced);
@@ -141,28 +137,52 @@ function AppContent() {
   }, [evaluatedBadges]);
 
   const prevUnlockedIdsRef = useRef<string[]>(
-    progress.unlockedBadgeIds || evaluatedBadges.filter((b) => b.isUnlocked).map((b) => b.badge.id)
+    progress.unlockedBadgeIds && progress.unlockedBadgeIds.length > 0
+      ? progress.unlockedBadgeIds
+      : evaluatedBadges.filter((b) => b.isUnlocked).map((b) => b.badge.id)
   );
 
   // Check for badge unlocks whenever progress changes
-  const checkBadgeUnlocks = (newProg: UserProgress) => {
-    const freshUnlocked = findNewlyUnlockedBadges(
-      prevUnlockedIdsRef.current,
+  const checkBadgeUnlocks = (
+    newProg: UserProgress,
+    options?: {
+      excludeCategories?: string[];
+      onNewlyUnlocked?: (badges: BadgeDefinition[]) => void;
+    }
+  ): UserProgress => {
+    const { progress: nextProg, newlyUnlockedBadges } = applyBadgeUnlocksToProgress(
       newProg,
-      psychologySections
+      psychologySections,
+      {
+        knownUnlockedIds: prevUnlockedIdsRef.current,
+        excludeCategories: options?.excludeCategories,
+      }
     );
 
-    if (freshUnlocked.length > 0) {
-      const firstNew = freshUnlocked[0];
-      setNewlyUnlockedBadge(firstNew);
-      const allUnlockedIds = [
-        ...prevUnlockedIdsRef.current,
-        ...freshUnlocked.map((b) => b.id),
-      ];
-      prevUnlockedIdsRef.current = allUnlockedIds;
-      return allUnlockedIds;
+    prevUnlockedIdsRef.current = nextProg.unlockedBadgeIds || [];
+
+    if (newlyUnlockedBadges.length > 0) {
+      setNewlyUnlockedBadge(newlyUnlockedBadges[0]);
+      if (options?.onNewlyUnlocked) {
+        options.onNewlyUnlocked(newlyUnlockedBadges);
+      } else {
+        void (async () => {
+          for (const b of newlyUnlockedBadges) {
+            await submitScoreToLeaderboard(
+              {
+                rewardType: 'badge_unlock',
+                badgeId: b.id,
+                idempotencyKey: `badge_unlock:${b.id}`,
+                xpEarned: b.xpReward,
+              },
+              nextProg.streakDays || 1
+            );
+          }
+        })();
+      }
     }
-    return prevUnlockedIdsRef.current;
+
+    return nextProg;
   };
 
   // Sync progress to localStorage & Cloud (wait until initial auth session check finishes)
@@ -341,17 +361,50 @@ function AppContent() {
   };
 
   const handleMarkCompleted = (chapterId: string) => {
+    let awardedChapterXp = 0;
+    let badgesToSubmit: BadgeDefinition[] = [];
+    let currentStreak = progressRef.current.streakDays || 1;
+
     setProgress((prev) => {
-      const exists = prev.completedChapters.includes(chapterId);
-      const updatedProg = {
-        ...prev,
-        completedChapters: exists
-          ? prev.completedChapters.filter((id) => id !== chapterId)
-          : [...prev.completedChapters, chapterId],
-      };
-      const updatedBadgeIds = checkBadgeUnlocks(updatedProg);
-      return { ...updatedProg, unlockedBadgeIds: updatedBadgeIds };
+      const { progress: toggledProg, xpAwarded } = applyChapterCompletionToggleToProgress(
+        prev,
+        chapterId
+      );
+      awardedChapterXp = xpAwarded;
+      currentStreak = toggledProg.streakDays || 1;
+      // Exclude 'quizzes' category on textbook chapter completion so it can never trigger "First Quiz Spark"
+      return checkBadgeUnlocks(toggledProg, {
+        excludeCategories: ['quizzes'],
+        onNewlyUnlocked: (badges) => {
+          badgesToSubmit = badges;
+        },
+      });
     });
+
+    void (async () => {
+      if (awardedChapterXp > 0) {
+        await submitScoreToLeaderboard(
+          {
+            rewardType: 'chapter_completion',
+            chapterId,
+            idempotencyKey: `chapter_completion:${chapterId}`,
+            xpEarned: awardedChapterXp,
+          },
+          currentStreak
+        );
+      }
+      for (const b of badgesToSubmit) {
+        await submitScoreToLeaderboard(
+          {
+            rewardType: 'badge_unlock',
+            badgeId: b.id,
+            idempotencyKey: `badge_unlock:${b.id}`,
+            xpEarned: b.xpReward,
+          },
+          currentStreak
+        );
+      }
+    })();
   };
 
   const handleRecordQuizResult = (
@@ -362,85 +415,57 @@ function AppContent() {
     timeSpentSeconds: number,
     difficulty: DifficultyLevel
   ) => {
+    let badgesToSubmit: BadgeDefinition[] = [];
+    let currentStreak = progressRef.current.streakDays || 1;
+
     setProgress((prev) => {
-      const newHistoryItem = {
+      const { progress: updatedProg } = applyStandaloneQuizAnswerToProgress(prev, {
         chapterId,
         questionId,
         isCorrect,
         userAnswer,
-        timestamp: Date.now(),
         timeSpentSeconds,
         difficulty,
-      };
-
-      const updatedCompleted = isCorrect && !prev.completedChapters.includes(chapterId)
-        ? [...prev.completedChapters, chapterId]
-        : prev.completedChapters;
-
-      const updatedProg: UserProgress = {
-        ...prev,
-        quizHistory: [newHistoryItem, ...prev.quizHistory],
-        completedChapters: updatedCompleted,
-        totalStudyMinutes: prev.totalStudyMinutes + Math.max(1, Math.round(timeSpentSeconds / 60)),
-      };
-
-      const updatedBadgeIds = checkBadgeUnlocks(updatedProg);
-      return { ...updatedProg, unlockedBadgeIds: updatedBadgeIds };
+      });
+      currentStreak = updatedProg.streakDays || 1;
+      return checkBadgeUnlocks(updatedProg, {
+        onNewlyUnlocked: (badges) => {
+          badgesToSubmit = badges;
+        },
+      });
     });
 
-    if (isCorrect) {
-      submitScoreToLeaderboard(
-        {
-          rewardType: 'quiz_answer',
-          chapterId,
-          questionId,
-          userAnswer,
-          isCorrect: true,
-        },
-        progress.streakDays
-      );
-    }
+    void (async () => {
+      if (isCorrect) {
+        await submitScoreToLeaderboard(
+          {
+            rewardType: 'quiz_answer',
+            chapterId,
+            questionId,
+            userAnswer,
+            isCorrect: true,
+          },
+          currentStreak
+        );
+      }
+      for (const b of badgesToSubmit) {
+        await submitScoreToLeaderboard(
+          {
+            rewardType: 'badge_unlock',
+            badgeId: b.id,
+            idempotencyKey: `badge_unlock:${b.id}`,
+            xpEarned: b.xpReward,
+          },
+          currentStreak
+        );
+      }
+    })();
   };
 
   const handleCompleteStage = (record: StageCompletionRecord) => {
     setProgress((prev) => {
-      const normalizedRecord: StageCompletionRecord = {
-        ...record,
-        verified: Boolean(record.verified === true || record.source === 'online-verified'),
-        source:
-          record.verified === true || record.source === 'online-verified'
-            ? 'online-verified'
-            : 'offline-local',
-      };
-      const updatedStages = mergeCompletedStages(prev.completedStages, {
-        [record.stageNumber]: normalizedRecord,
-      });
-
-      const alreadyRecordedInHistory = prev.quizHistory.some(
-        (h) => h.questionId === `stage-${record.stageNumber}` && Date.now() - h.timestamp < 15000
-      );
-
-      const newHistoryItem = {
-        chapterId: 'ch-1',
-        questionId: `stage-${record.stageNumber}`,
-        isCorrect: true,
-        userAnswer: 'completed',
-        timestamp: Date.now(),
-        timeSpentSeconds: 45,
-        difficulty: 'intermediate' as DifficultyLevel,
-      };
-
-      const updatedProg: UserProgress = {
-        ...prev,
-        completedStages: updatedStages,
-        unlockedStageNumber: Math.max(prev.unlockedStageNumber || 1, record.stageNumber + 1),
-        quizHistory: alreadyRecordedInHistory ? prev.quizHistory : [newHistoryItem, ...prev.quizHistory],
-        totalStudyMinutes: alreadyRecordedInHistory ? prev.totalStudyMinutes : prev.totalStudyMinutes + 3,
-        streakDays: prev.streakDays < 1 ? 1 : prev.streakDays,
-      };
-
-      const updatedBadgeIds = checkBadgeUnlocks(updatedProg);
-      return { ...updatedProg, unlockedBadgeIds: updatedBadgeIds };
+      const { progress: updatedProg } = applyStageCompletionToProgress(prev, record);
+      return checkBadgeUnlocks(updatedProg);
     });
   };
 
@@ -453,23 +478,80 @@ function AppContent() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleLogStudyTime = (chapterId: string, seconds: number, _xpBonus: number) => {
+  const handleLogStudyTime = (
+    chapterId: string,
+    seconds: number,
+    _xpBonus: number,
+    sessionId?: string
+  ) => {
+    const cleanSessionId =
+      sessionId || `pomo_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    let sessionApplied = false;
+    let sessionMinutes = 0;
+    let sessionXpAwarded = 0;
+    let badgesToSubmit: BadgeDefinition[] = [];
+    let currentStreak = progressRef.current.streakDays || 1;
+
     setProgress((prev) => {
-      const currentChapterSecs = prev.chapterStudyTime?.[chapterId] || 0;
-      const updatedChapterStudyTime = {
-        ...(prev.chapterStudyTime || {}),
-        [chapterId]: currentChapterSecs + seconds,
-      };
-      const additionalMinutes = Math.max(1, Math.round(seconds / 60));
-      const updatedProg: UserProgress = {
-        ...prev,
-        chapterStudyTime: updatedChapterStudyTime,
-        totalStudyMinutes: prev.totalStudyMinutes + additionalMinutes,
-        totalPomodoroSessionsCompleted: (prev.totalPomodoroSessionsCompleted || 0) + 1,
-        streakDays: prev.streakDays < 1 ? 1 : prev.streakDays,
-      };
-      const updatedBadgeIds = checkBadgeUnlocks(updatedProg);
-      return { ...updatedProg, unlockedBadgeIds: updatedBadgeIds };
+      const { progress: updatedProg, applied, minutesAdded, xpAwarded } =
+        recordPomodoroSessionCompletion(prev, {
+          sessionId: cleanSessionId,
+          chapterId,
+          seconds,
+        });
+
+      if (!applied) {
+        return prev;
+      }
+
+      sessionApplied = true;
+      sessionMinutes = minutesAdded;
+      sessionXpAwarded = xpAwarded;
+      currentStreak = updatedProg.streakDays || 1;
+
+      return checkBadgeUnlocks(updatedProg, {
+        onNewlyUnlocked: (badges) => {
+          badgesToSubmit = badges;
+        },
+      });
+    });
+
+    if (sessionApplied && sessionXpAwarded > 0 && cleanSessionId) {
+      void (async () => {
+        await submitScoreToLeaderboard(
+          {
+            rewardType: 'pomodoro',
+            chapterId,
+            minutes: sessionMinutes,
+            seconds,
+            sessionId: cleanSessionId,
+            idempotencyKey: `pomodoro:${cleanSessionId}`,
+            xpEarned: sessionXpAwarded,
+          },
+          currentStreak
+        );
+        for (const b of badgesToSubmit) {
+          await submitScoreToLeaderboard(
+            {
+              rewardType: 'badge_unlock',
+              badgeId: b.id,
+              idempotencyKey: `badge_unlock:${b.id}`,
+              xpEarned: b.xpReward,
+            },
+            currentStreak
+          );
+        }
+      })();
+    }
+  };
+
+  const handleClaimStageChest = (stageNumber: number) => {
+    setProgress((prev) => {
+      const result = claimStageChestReward(prev, stageNumber);
+      if (!result.claimed) {
+        return prev;
+      }
+      return checkBadgeUnlocks(result.progress);
     });
   };
 
@@ -477,6 +559,27 @@ function AppContent() {
     localStorage.clear();
     window.location.reload();
   };
+
+  const handleToggleSound = (enabled: boolean) => {
+    setSoundEnabled(enabled, { skipProgressSync: true });
+    setProgress((prev) => ({
+      ...prev,
+      customSettings: {
+        ...prev.customSettings,
+        soundEnabled: enabled,
+      },
+    }));
+  };
+
+  const handleSelectDiscipline = (nextDisciplineId: LearningDisciplineId) => {
+    const normalized = saveActiveDiscipline(nextDisciplineId);
+    setActiveDiscipline((prev) => (prev === normalized ? prev : normalized));
+  };
+
+  const authoritativeTotalXp = useMemo(
+    () => calculateAuthoritativeUserXp(progress, currentUser?.xp),
+    [progress, currentUser?.xp]
+  );
 
   return (
     <div className="min-h-screen bg-[#F7F5F0] text-[#24243B] font-sans flex flex-col selection:bg-[#EAE4FF] selection:text-[#24243B]">
@@ -488,7 +591,7 @@ function AppContent() {
         </div>
       )}
 
-      {/* 5-Destination Navigation Bar */}
+      {/* 4-Destination Navigation Bar */}
       <Navbar
         activeTab={activeTab}
         setActiveTab={(tab) => {
@@ -503,6 +606,8 @@ function AppContent() {
           }
           setActiveTab(tab);
         }}
+        activeDiscipline={activeDiscipline}
+        onSelectDiscipline={handleSelectDiscipline}
         onOpenSearch={() => setIsSearchOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenSourceCode={() => setIsSourceCodeOpen(true)}
@@ -510,6 +615,9 @@ function AppContent() {
         onOpenTrafficAnalytics={() => setIsTrafficModalOpen(true)}
         streakDays={progress.streakDays}
         unlockedBadgeCount={unlockedBadgeCount}
+        totalXp={authoritativeTotalXp}
+        soundEnabled={progress.customSettings?.soundEnabled !== false}
+        onToggleSound={handleToggleSound}
         onlineCount={onlineCount}
         isOffline={isOffline}
         isSyncingCloud={isSyncingCloud}
@@ -517,7 +625,10 @@ function AppContent() {
 
       {/* Main Body View */}
       <div className="flex-1 max-w-6xl w-full mx-auto px-3.5 sm:px-6 lg:px-8 pt-4 sm:pt-7 pb-24 lg:pb-12">
-        <OfflineSafeErrorBoundary>
+        <OfflineSafeErrorBoundary
+          resetKey={`${activeTab}:${learningSubMode}:${userPanelSubView}`}
+          onNavigateHome={() => setActiveTab('dashboard')}
+        >
           {activeTab === 'dashboard' && (
             <StageExecutionProvider
               progress={progress}
@@ -527,6 +638,8 @@ function AppContent() {
                 sections={psychologySections}
                 progress={progress}
                 currentChapter={currentChapter}
+                activeDiscipline={activeDiscipline}
+                onSelectDiscipline={handleSelectDiscipline}
                 onSelectChapter={handleSelectChapter}
                 onStartQuiz={handleStartQuiz}
                 onOpenNotes={() => handleOpenUserPanel('notes')}
@@ -565,6 +678,7 @@ function AppContent() {
                   }))
                 }
                 onCompleteStage={handleCompleteStage}
+                onClaimStageChest={handleClaimStageChest}
               />
             </StageExecutionProvider>
           )}
@@ -605,16 +719,16 @@ function AppContent() {
               onOpenBadges={() => handleOpenUserPanel('badges')}
               initialExamMode={quizSubMode}
               initialAttemptIdToReview={examAttemptIdToReview}
-              onExamSubmitted={(_xpEarned, attempt) => {
+              onExamSubmitted={(xpEarned, attempt) => {
                 setProgress((prev) => {
                   const studyMins = Math.max(1, Math.round((attempt?.timeSpentSeconds || 60) / 60));
-                  const updatedProg: UserProgress = {
+                  const baseUpdated: UserProgress = {
                     ...prev,
                     totalStudyMinutes: prev.totalStudyMinutes + studyMins,
                     streakDays: prev.streakDays < 1 ? 1 : prev.streakDays,
                   };
-                  const updatedBadgeIds = checkBadgeUnlocks(updatedProg);
-                  return { ...updatedProg, unlockedBadgeIds: updatedBadgeIds };
+                  const withDaily = xpEarned > 0 ? recordDailyXpActivity(baseUpdated, xpEarned) : baseUpdated;
+                  return checkBadgeUnlocks(withDaily);
                 });
               }}
             />
@@ -651,6 +765,8 @@ function AppContent() {
               onlineCount={onlineCount}
               isOffline={isOffline}
               isSyncingCloud={isSyncingCloud}
+              tickets={tickets}
+              onAddTicket={handleAddTicket}
             />
           )}
 

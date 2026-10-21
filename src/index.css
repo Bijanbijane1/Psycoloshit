@@ -65,6 +65,11 @@
     -webkit-tap-highlight-color: transparent;
   }
 
+  /* Prevent iOS Safari automatic viewport focus zoom on editable fields */
+  input, select, textarea {
+    font-size: 16px;
+  }
+
   /* Accessible focus indicators */
   :focus-visible {
     outline: 2px solid var(--pm-violet);
@@ -316,7 +321,30 @@
   line-height: 2.15;
   letter-spacing: -0.01em;
   color: var(--pm-text);
+}
+
+.prose-persian[data-reader-font-size="sm"],
+.prose-persian[data-reader-font-size="sm"] p {
+  font-size: 0.875rem;
+  line-height: 1.95;
+}
+
+.prose-persian[data-reader-font-size="md"],
+.prose-persian[data-reader-font-size="md"] p {
   font-size: 1.025rem;
+  line-height: 2.15;
+}
+
+.prose-persian[data-reader-font-size="lg"],
+.prose-persian[data-reader-font-size="lg"] p {
+  font-size: 1.225rem;
+  line-height: 2.25;
+}
+
+.prose-persian[data-reader-font-size="xl"],
+.prose-persian[data-reader-font-size="xl"] p {
+  font-size: 1.425rem;
+  line-height: 2.35;
 }
 
 .prose-persian p {

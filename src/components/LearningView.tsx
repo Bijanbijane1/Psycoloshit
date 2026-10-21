@@ -57,6 +57,7 @@ interface LearningViewProps {
   onOpenPomodoro?: () => void;
   onUpdateSettings: (newSettings: Partial<UserProgress['customSettings']>) => void;
   onCompleteStage?: (record: StageCompletionRecord) => void;
+  onClaimStageChest?: (stageNumber: number) => void;
 }
 
 interface UnitEditorialTheme {
@@ -235,6 +236,7 @@ export const LearningView: React.FC<LearningViewProps> = ({
   onOpenPomodoro,
   onUpdateSettings,
   onCompleteStage,
+  onClaimStageChest,
 }) => {
   const [subMode, setSubMode] = useState<LearningSubMode>(initialSubMode);
 
@@ -934,6 +936,63 @@ export const LearningView: React.FC<LearningViewProps> = ({
                           </div>
                         );
                       })}
+                    </div>
+                  )}
+
+                  {unitGroup.unitIndex === 5 && (
+                    <div className="p-4 sm:p-6 bg-gradient-to-r from-[#FFF6D6] to-[#FFE5DC] border-t border-[#E5E1EB] flex flex-col sm:flex-row items-center justify-between gap-4">
+                      <div className="flex items-center gap-3 text-right">
+                        <div className="w-12 h-12 rounded-2xl bg-[#E5A33D] text-white flex items-center justify-center text-xl font-black shrink-0 shadow-md">
+                          🎁
+                        </div>
+                        <div>
+                          <span className="text-xs font-black text-[#5C3D0E]">
+                            صندوقچه طلایی نهایی (مرحله ۱۰۰)
+                          </span>
+                          <p className="text-xs font-bold text-[#24243B] mt-0.5">
+                            پاداش ویژه +۱۵۰ الماس و نشان افتخار قهرمانی
+                          </p>
+                        </div>
+                      </div>
+
+                      {progress.claimedStageChests?.includes(100) ? (
+                        <span className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#DDF3E9] text-[#134E4A] text-xs font-extrabold border border-[#389D77]/40 shrink-0">
+                          <Check className="w-4 h-4 text-[#389D77]" />
+                          <span>دریافت شد (+۱۵۰ الماس)</span>
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            const prereq = stageExecutionEngine.isStagePrerequisiteMet(
+                              100,
+                              progress.completedStages
+                            );
+                            const isStage100Completed = Boolean(progress.completedStages?.[100]);
+                            if (!prereq.isMet || !isStage100Completed) {
+                              const missingNum = !prereq.isMet ? prereq.missingStageNumber || 1 : 100;
+                              setVerifyFeedbackMsg(
+                                `امکان دریافت پاداش صندوقچه وجود ندارد: ابتدا باید مراحل پیش‌نیاز (از جمله مرحله ${toPersianDigits(
+                                  missingNum
+                                )}) را کامل کنید.`
+                              );
+                              return;
+                            }
+                            if (onClaimStageChest) {
+                              onClaimStageChest(100);
+                            }
+                          }}
+                          className={`px-4 py-2.5 rounded-xl text-xs font-extrabold cursor-pointer transition-all shadow-sm shrink-0 min-h-[44px] ${
+                            stageExecutionEngine.isStagePrerequisiteMet(
+                              100,
+                              progress.completedStages
+                            ).isMet && Boolean(progress.completedStages?.[100])
+                              ? 'bg-[#E5A33D] hover:bg-[#D4922C] text-white'
+                              : 'bg-[#E5E1EB] text-[#69697E] cursor-not-allowed'
+                          }`}
+                        >
+                          باز کردن صندوقچه ۱۰۰ (+۱۵۰ الماس)
+                        </button>
+                      )}
                     </div>
                   )}
                 </section>

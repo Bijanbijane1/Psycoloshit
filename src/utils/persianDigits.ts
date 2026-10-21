@@ -45,3 +45,70 @@ export function sanitizeRtlText(raw: string | null | undefined): string {
     .trim();
 }
 
+/**
+ * Normalizes Persian, Arabic, and English search strings:
+ * - Unifies Arabic/Persian Yeh (ي, ی, ئ, ى -> ی) and Kaf (ك, ک -> ک)
+ * - Unifies Teh Marbuta (ة -> ه) and Alef variants (أ, إ, آ, ٱ -> ا)
+ * - Removes Arabic diacritics (tashkeel) and tatweel (ـ)
+ * - Converts ZWNJ (نیم‌فاصله \u200C), zero-width chars, and whitespace runs to a single space
+ * - Converts Persian/Arabic digits to ASCII digits and lowercases Latin text
+ */
+export function normalizePersianSearchText(input: string | null | undefined): string {
+  if (!input) return '';
+  return toEnglishDigits(String(input))
+    .normalize('NFKC')
+    .replace(/[\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g, '')
+    .replace(/[يئى]/g, 'ی')
+    .replace(/ك/g, 'ک')
+    .replace(/ة/g, 'ه')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ؤ/g, 'و')
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2060\uFEFF]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Normalizes search text and strips all spaces/half-spaces so compound words
+ * match regardless of whether the user or title uses a normal space, ZWNJ, or no space
+ * (e.g., "روان شناسی" === "روان‌شناسی" === "روانشناسی").
+ */
+export function normalizePersianSearchCompact(input: string | null | undefined): string {
+  return normalizePersianSearchText(input).replace(/\s+/g, '');
+}
+
+/**
+ * Checks whether `haystack` matches `query` under both token-aware space/half-space
+ * normalization and compact compound-word normalization.
+ */
+export function matchesNormalizedPersianQuery(
+  haystack: string | null | undefined,
+  query: string | null | undefined
+): boolean {
+  const normQuery = normalizePersianSearchText(query);
+  if (!normQuery) return true;
+  const normHaystack = normalizePersianSearchText(haystack);
+  if (!normHaystack) return false;
+
+  if (normHaystack.includes(normQuery)) {
+    return true;
+  }
+
+  const compactQuery = normQuery.replace(/\s+/g, '');
+  const compactHaystack = normHaystack.replace(/\s+/g, '');
+  if (compactQuery.length > 0 && compactHaystack.includes(compactQuery)) {
+    return true;
+  }
+
+  const queryTokens = normQuery.split(' ').filter(Boolean);
+  if (queryTokens.length > 1) {
+    const allTokensMatch = queryTokens.every(
+      (token) => normHaystack.includes(token) || compactHaystack.includes(token)
+    );
+    if (allTokensMatch) return true;
+  }
+
+  return false;
+}
+

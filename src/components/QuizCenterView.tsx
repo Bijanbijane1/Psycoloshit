@@ -44,7 +44,7 @@ interface QuizCenterViewProps {
   onExamSubmitted?: (xpEarned: number, attempt: any) => void;
 }
 
-type QuizFilterType =
+export type QuizFilterType =
   | 'all'
   | 'match_pairs'
   | 'sentence_order'
@@ -52,6 +52,123 @@ type QuizFilterType =
   | 'multiple_choice'
   | 'fill_blank'
   | 'case_study';
+
+export function normalizeExerciseFilterType(rawType?: string | null): QuizFilterType {
+  const cleaned = String(rawType || 'all').trim().toLowerCase();
+  switch (cleaned) {
+    case 'sentence_order':
+    case 'sentence-order':
+    case 'sentence-ordering':
+    case 'sentence_ordering':
+    case 'sentence-arrangement':
+    case 'sentence_arrangement':
+      return 'sentence_order';
+    case 'match_pairs':
+    case 'match-pairs':
+    case 'matching_pairs':
+    case 'matching-pairs':
+    case 'matching':
+      return 'match_pairs';
+    case 'multiple_choice':
+    case 'multiple-choice':
+    case 'mcq':
+      return 'multiple_choice';
+    case 'case_study':
+    case 'case-study':
+    case 'case_based':
+    case 'case-based':
+    case 'clinical_case':
+    case 'clinical-case':
+      return 'case_study';
+    case 'fill_blank':
+    case 'fill-blank':
+    case 'fill_in_the_blank':
+    case 'fill-in-the-blank':
+      return 'fill_blank';
+    case 'true_false':
+    case 'true-false':
+      return 'true_false';
+    case 'all':
+    default:
+      return 'all';
+  }
+}
+
+export function isGenuineExerciseOfType(
+  q: Question | null | undefined,
+  targetType: Exclude<QuizFilterType, 'all'>
+): boolean {
+  if (!q || typeof q !== 'object') return false;
+  const qType = normalizeExerciseFilterType(q.type);
+  if (qType !== targetType) return false;
+
+  switch (targetType) {
+    case 'sentence_order':
+      return (
+        Array.isArray(q.sentenceTokens) &&
+        q.sentenceTokens.length >= 2 &&
+        Boolean(
+          (typeof q.correctSentence === 'string' && q.correctSentence.trim()) ||
+            (typeof q.correctAnswer === 'string' && q.correctAnswer.trim())
+        )
+      );
+    case 'match_pairs':
+      return (
+        Array.isArray(q.matchPairs) &&
+        q.matchPairs.length >= 2 &&
+        q.matchPairs.every((p) => Boolean(p && p.id && p.left && p.right))
+      );
+    case 'multiple_choice':
+      return (
+        Array.isArray(q.options) &&
+        q.options.length >= 2 &&
+        typeof q.correctAnswer === 'number'
+      );
+    case 'case_study': {
+      const diagOptions = q.options || q.caseScenario?.diagnosticOptions;
+      return Boolean(q.caseScenario) && Array.isArray(diagOptions) && diagOptions.length >= 2;
+    }
+    case 'fill_blank':
+      return (
+        Boolean(q.blankContext || (typeof q.text === 'string' && q.text.includes('____'))) &&
+        typeof q.correctAnswer === 'string' &&
+        q.correctAnswer.trim().length > 0
+      );
+    case 'true_false':
+      return typeof q.isTrue === 'boolean' || typeof q.correctAnswer === 'boolean';
+    default:
+      return false;
+  }
+}
+
+export function filterQuestionsByExerciseType<T extends Question & { chapterId?: string }>(
+  allQuestions: T[],
+  rawFilterType: string,
+  selectedChapterId?: string | null
+): T[] {
+  const normalizedFilter = normalizeExerciseFilterType(rawFilterType);
+  const safeAll = Array.isArray(allQuestions) ? allQuestions : [];
+
+  if (normalizedFilter === 'all') {
+    if (selectedChapterId) {
+      const chapterPool = safeAll.filter((q) => q.chapterId === selectedChapterId);
+      if (chapterPool.length > 0) return chapterPool;
+    }
+    return safeAll;
+  }
+
+  // Strict type filtering: never fall back to an unrelated exercise type
+  if (selectedChapterId) {
+    const chapterFiltered = safeAll.filter(
+      (q) => q.chapterId === selectedChapterId && isGenuineExerciseOfType(q, normalizedFilter)
+    );
+    if (chapterFiltered.length > 0) {
+      return chapterFiltered;
+    }
+  }
+
+  return safeAll.filter((q) => isGenuineExerciseOfType(q, normalizedFilter));
+}
 
 export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
   sections,
@@ -148,26 +265,11 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
 
   // Load questions based on filter & selectedChapter
   useEffect(() => {
-    let pool = allQuestions;
-
-    if (selectedChapter) {
-      const chapterPool = allQuestions.filter((q) => q.chapterId === selectedChapter.id);
-      if (chapterPool.length > 0) {
-        pool = chapterPool;
-      }
-    }
-
-    if (filterType !== 'all') {
-      const filteredPool = pool.filter((q) => q.type === filterType);
-      if (filteredPool.length > 0) {
-        pool = filteredPool;
-      } else {
-        const globalFiltered = allQuestions.filter((q) => q.type === filterType);
-        if (globalFiltered.length > 0) {
-          pool = globalFiltered;
-        }
-      }
-    }
+    const pool = filterQuestionsByExerciseType(
+      allQuestions,
+      filterType,
+      selectedChapter?.id ?? null
+    );
 
     const shuffled = [...pool].sort(() => 0.5 - Math.random()).slice(0, 5);
     setQuestionsDeck(shuffled);
@@ -356,16 +458,17 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
     if (currentQuestion.type === 'sentence_order') userAnswer = selectedTokens.join(' ');
     if (currentQuestion.type === 'match_pairs') userAnswer = matchedPairIds;
 
-    if (currentChapter) {
-      onRecordQuizResult(
-        currentChapter.id,
-        currentQuestion.id,
-        isCorrect,
-        userAnswer,
-        timerSeconds,
-        currentQuestion.difficulty
-      );
-    }
+    const targetChapterId =
+      currentChapter?.id || (currentQuestion as any)?.chapterId || 'ch-1';
+
+    onRecordQuizResult(
+      targetChapterId,
+      currentQuestion.id,
+      isCorrect,
+      userAnswer,
+      timerSeconds,
+      currentQuestion.difficulty
+    );
   };
 
   const handleNextQuestion = () => {
@@ -533,7 +636,7 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
             <div className="flex items-center gap-1 my-1.5">
               <Zap className="w-4 h-4 text-[#D97706] fill-[#F59E0B]" />
               <span className="text-xl font-black text-[#24243B]">
-                +{toPersianDigits(quizScore.points || 50)}
+                +{toPersianDigits(quizScore.points)}
               </span>
             </div>
             <span className="text-[10px] font-bold text-[#69697E]">امتیاز XP</span>
@@ -604,7 +707,14 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
               setIsQuizCompleted(false);
               setCurrentQuestionIndex(0);
               resetAllInputStates();
-              setQuestionsDeck((prev) => [...prev].sort(() => 0.5 - Math.random()));
+              setAnswersHistory([]);
+              setHeartsCount(5);
+              setTimerSeconds(0);
+              setQuestionsDeck((prev) => {
+                const nextDeck = [...prev].sort(() => 0.5 - Math.random());
+                setQuizScore({ correct: 0, total: nextDeck.length, points: 0 });
+                return nextDeck;
+              });
             }}
             className="flex-1 py-3.5 rounded-xl bg-white hover:bg-[#F7F5F0] border border-[#E5E1EB] text-[#24243B] text-xs font-extrabold flex items-center justify-center gap-2 cursor-pointer transition-colors min-h-[48px]"
           >
@@ -630,8 +740,28 @@ export const QuizCenterView: React.FC<QuizCenterViewProps> = ({
 
   if (!currentQuestion) {
     return (
-      <div className="p-12 text-center bg-white rounded-2xl border border-[#E5E1EB]">
-        <p className="text-[#69697E] text-sm font-bold">در حال آماده‌سازی سوالات آزمون...</p>
+      <div className="max-w-2xl mx-auto pb-24 select-none">
+        {modeSwitcherBar}
+        <div className="p-8 sm:p-10 text-center bg-white rounded-2xl border border-[#E5E1EB] space-y-4">
+          <p className="text-[#24243B] text-sm font-black">
+            هیچ تمرینی با قالب انتخاب‌شده یافت نشد.
+          </p>
+          <p className="text-[#69697E] text-xs font-bold">
+            می‌توانید قالب دیگری را انتخاب کنید یا به نمای همه قالب‌های تمرینی بازگردید.
+          </p>
+          <div className="flex items-center justify-center gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => {
+                playDuoSound('click');
+                setFilterType('all');
+              }}
+              className="px-4 py-2.5 rounded-xl bg-[#5B46E8] hover:bg-[#4935D4] text-white text-xs font-extrabold cursor-pointer transition-colors"
+            >
+              نمایش همه قالب‌ها
+            </button>
+          </div>
+        </div>
       </div>
     );
   }

@@ -3,6 +3,58 @@ import { Section, Chapter, UserProgress } from '../types/psychology';
 import { Search, X, BookOpen, Sparkles, ChevronLeft } from 'lucide-react';
 import { DuoMascot } from './DuoMascot';
 import { playDuoSound } from '../utils/duoAudio';
+import { matchesNormalizedPersianQuery, normalizePersianSearchText } from '../utils/persianDigits';
+
+export function searchCurriculumChapters(
+  sections: Section[],
+  rawQuery: string,
+  options?: {
+    sectionFilter?: number | 'all';
+    chapterNotes?: Record<string, string>;
+  }
+): Chapter[] {
+  const normalizedQuery = normalizePersianSearchText(rawQuery);
+  if (!normalizedQuery) return [];
+
+  const sectionFilter = options?.sectionFilter ?? 'all';
+  const chapterNotes = options?.chapterNotes ?? {};
+  const allChapters = (sections || []).flatMap((s) => s.chapters || []);
+
+  return allChapters.filter((ch) => {
+    if (sectionFilter !== 'all' && ch.sectionId !== sectionFilter) {
+      return false;
+    }
+
+    if (
+      matchesNormalizedPersianQuery(ch.title, rawQuery) ||
+      matchesNormalizedPersianQuery(ch.englishTitle, rawQuery)
+    ) {
+      return true;
+    }
+
+    if ((ch.subtopics || []).some((st) => matchesNormalizedPersianQuery(st, rawQuery))) {
+      return true;
+    }
+
+    if (
+      matchesNormalizedPersianQuery(ch.academicText, rawQuery) ||
+      matchesNormalizedPersianQuery(ch.simplifiedText, rawQuery)
+    ) {
+      return true;
+    }
+
+    if ((ch.keyPoints || []).some((kp) => matchesNormalizedPersianQuery(kp, rawQuery))) {
+      return true;
+    }
+
+    const noteText = chapterNotes[ch.id] || '';
+    if (noteText && matchesNormalizedPersianQuery(noteText, rawQuery)) {
+      return true;
+    }
+
+    return false;
+  });
+}
 
 interface AdvancedSearchModalProps {
   isOpen: boolean;
@@ -33,34 +85,12 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  const allChapters = useMemo(() => sections.flatMap((s) => s.chapters), [sections]);
-
   const searchResults = useMemo(() => {
-    if (!query.trim()) return [];
-    const q = query.trim().toLowerCase();
-
-    return allChapters.filter((ch) => {
-      if (selectedSectionFilter !== 'all' && ch.sectionId !== selectedSectionFilter) {
-        return false;
-      }
-      const titleMatch =
-        ch.title.toLowerCase().includes(q) || ch.englishTitle.toLowerCase().includes(q);
-      const subtopicsMatch = ch.subtopics.some((st) => st.toLowerCase().includes(q));
-      const academicMatch = ch.academicText.toLowerCase().includes(q);
-      const simplifiedMatch = ch.simplifiedText.toLowerCase().includes(q);
-      const keyPointsMatch = ch.keyPoints.some((kp) => kp.toLowerCase().includes(q));
-      const noteMatch = (progress.chapterNotes[ch.id] || '').toLowerCase().includes(q);
-
-      return (
-        titleMatch ||
-        subtopicsMatch ||
-        academicMatch ||
-        simplifiedMatch ||
-        keyPointsMatch ||
-        noteMatch
-      );
+    return searchCurriculumChapters(sections, query, {
+      sectionFilter: selectedSectionFilter,
+      chapterNotes: progress.chapterNotes,
     });
-  }, [query, selectedSectionFilter, allChapters, progress.chapterNotes]);
+  }, [query, selectedSectionFilter, sections, progress.chapterNotes]);
 
   if (!isOpen) return null;
 
